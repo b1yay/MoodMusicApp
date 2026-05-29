@@ -1,0 +1,27 @@
+<resources>
+    <string name="app_name">Arbitify</string>
+    <string name="hello_blank_fragment">Hello blank fragment</string>
+
+    <!-- Filter Pills -->
+    <string name="filter_all">All</string>
+    <string name="filter_recent">Recent</string>
+    <string name="filter_popular">Popular</string>
+
+    <!-- Mood List -->
+    <string name="mood_playlist_prefix">✦ MOOD PLAYLIST</string>
+
+    <!-- Mood Cards -->
+    <string name="mood_happy_subtitle">Feel good hits</string>
+    <string name="mood_romantic_subtitle">Romantic vibes</string>
+    <string name="mood_chill_subtitle">Relax &amp; Unwind</string>
+    <string name="mood_sad_subtitle">Here for you</string>
+    <string name="mood_hyped_subtitle">High energy bangers</string>
+    <string name="mood_discover_hint">✦ Swipe a mood to discover music</string>
+    <string name="see_all">See all</string>
+
+    <!-- Favorites -->
+    <string name="collection_prefix">✦ COLLECTION</string>
+    <string name="songs_label">SONGS</string>
+    <string name="playlists_label">PLAYLISTS</string>
+    <string name="your_music_prefix">✦ YOUR MUSIC</string>
+</resources>

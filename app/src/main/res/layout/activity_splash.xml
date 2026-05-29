@@ -1,0 +1,28 @@
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@drawable/splash_gradient_bg">
+    <!--  Decorative top-right orb  -->
+    <View android:id="@+id/orbTopRight" android:layout_width="200dp" android:layout_height="200dp" android:background="@drawable/glow_orb" android:alpha="0.5" app:layout_constraintTop_toTopOf="parent" app:layout_constraintEnd_toEndOf="parent" android:layout_marginTop="-60dp" android:layout_marginEnd="-60dp"/>
+    <!--  Decorative bottom-left orb  -->
+    <View android:id="@+id/orbBottomLeft" android:layout_width="160dp" android:layout_height="160dp" android:background="@drawable/glow_orb_cyan" android:alpha="0.4" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintStart_toStartOf="parent" android:layout_marginBottom="-50dp" android:layout_marginStart="-50dp"/>
+    <!--  Glassy card container  -->
+    <androidx.cardview.widget.CardView android:id="@+id/splashCard" android:layout_width="260dp" android:layout_height="wrap_content" app:cardCornerRadius="32dp" app:cardElevation="0dp" app:cardBackgroundColor="#33FFFFFF" app:layout_constraintTop_toTopOf="parent" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:gravity="center" android:padding="36dp">
+            <!--  Logo with glow ring  -->
+            <FrameLayout android:layout_width="130dp" android:layout_height="130dp" android:layout_gravity="center">
+                <View android:layout_width="130dp" android:layout_height="130dp" android:background="@drawable/logo_glow_ring" android:layout_gravity="center"/>
+                <ImageView android:layout_width="100dp" android:layout_height="100dp" android:src="@mipmap/arbitify_logo" android:layout_gravity="center" android:contentDescription="Arbitify Logo"/>
+            </FrameLayout>
+            <!--  App Name  -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Arbitify" android:textSize="34sp" android:textStyle="bold" android:textColor="#FFFFFF" android:letterSpacing="0.12" android:layout_marginTop="20dp" android:fontFamily="sans-serif-medium"/>
+            <!--  Neon separator line  -->
+            <View android:layout_width="60dp" android:layout_height="2dp" android:background="@drawable/neon_divider" android:layout_marginTop="10dp" android:layout_marginBottom="10dp"/>
+            <!--  Tagline  -->
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Dil se Dil tak" android:textSize="14sp" android:textColor="#E0BBFF" android:letterSpacing="0.08" android:fontFamily="sans-serif-light"/>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+    <!--  Loading dots at bottom  -->
+    <LinearLayout android:id="@+id/loadingDots" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" app:layout_constraintBottom_toBottomOf="parent" app:layout_constraintStart_toStartOf="parent" app:layout_constraintEnd_toEndOf="parent" android:layout_marginBottom="60dp">
+        <View android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/dot_active" android:layout_marginEnd="6dp"/>
+        <View android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/dot_inactive" android:layout_marginEnd="6dp"/>
+        <View android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/dot_inactive"/>
+    </LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>

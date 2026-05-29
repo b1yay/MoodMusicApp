@@ -1,0 +1,40 @@
+<resources>
+    <!-- Primary Palette -->
+    <color name="bg_dark">#0E0E1A</color>
+    <color name="bg_black">#08080E</color>
+    <color name="bg_secondary">#151528</color>
+    <color name="neon_purple">#8A2BE2</color>
+    <color name="neon_pink">#FF2D75</color>
+    <color name="neon_cyan">#00E6FF</color>
+    <color name="neon_yellow">#FFD166</color>
+
+    <!-- UI Element Colors -->
+    <color name="glass_white_10">#1AFFFFFF</color>
+    <color name="glass_white_20">#33FFFFFF</color>
+    <color name="glass_white_5">#0DFFFFFF</color>
+    <color name="neon_glow_cyan">#4000E6FF</color>
+
+    <color name="text_white">#FFFFFF</color>
+    <color name="text_gray">#A0A0A0</color>
+    <color name="text_dim">#666666</color>
+
+    <!-- Mood Card Gradients -->
+    <color name="mood_happy_start">#FFD166</color>
+    <color name="mood_happy_end">#F7971E</color>
+    <color name="mood_in_love_start">#FF2D75</color>
+    <color name="mood_in_love_end">#E31D2D</color>
+    <color name="mood_chill_start">#00E6FF</color>
+    <color name="mood_chill_end">#007BFF</color>
+    <color name="mood_sad_start">#4A00E0</color>
+    <color name="mood_sad_end">#8E2DE2</color>
+    <color name="mood_hyped_start">#FF4B2B</color>
+    <color name="mood_hyped_end">#FF416C</color>
+    <color name="mood_confident_start">#11998e</color>
+    <color name="mood_confident_end">#38ef7d</color>
+
+    <!-- Standard Colors -->
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+    <item name="accent_color" type="color">@color/neon_purple</item>
+    <item name="bg_surface" type="color">@color/bg_secondary</item>
+</resources>

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "985529205385",
+    "project_id": "arbitify-bc549",
+    "storage_bucket": "arbitify-bc549.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:985529205385:android:f451119107a3a12977bc58",
+        "android_client_info": {
+          "package_name": "com.example.moodmusicapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTA38bxdX6KusK1PMf9ca1wqbiy0wRm_o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

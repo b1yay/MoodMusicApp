@@ -2,6 +2,7 @@ package com.example.moodmusicapp.ui
 
 sealed class Screen(val route: String) {
     object Login : Screen("login")
+    object SignUp : Screen("signup")
     object Home : Screen("home")
     object Favourites : Screen("favourites")
     object Playlist : Screen("playlist/{moodName}") {

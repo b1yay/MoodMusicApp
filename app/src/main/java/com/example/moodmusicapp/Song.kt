@@ -8,5 +8,6 @@ data class Song(
     val fileName: String? = null,
     val imageFileName: String? = null,
     val imageUrl: String? = null,
+    val audioUrl: String? = null,
     var isFavorite: Boolean = false
 )

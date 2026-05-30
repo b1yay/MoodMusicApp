@@ -49,7 +49,7 @@ object MediaManager {
             }
         }
 
-        // Polling to keep _isPlaying flow in sync
+        // Polling to keep _isPlaying flow in sync with actual player state
         scope.launch {
             while (true) {
                 val actual = isPlayingInternal()
@@ -82,9 +82,10 @@ object MediaManager {
         _currentPlayerType.value = PlayerType.YOUTUBE
         _currentSongState.value = song
         _isPlaying.value = false
-        // Buffering will be set to true inside playFromUrl
+        
+        // We no longer call YouTubePlayer.playFromUrl here.
+        // The caller in the UI layer (Screens.kt) now calls it directly with the Jamendo URL.
         YouTubePlayer.initialize(context)
-        YouTubePlayer.playFromUrl(song.id)
     }
 
     fun togglePlayPause() {

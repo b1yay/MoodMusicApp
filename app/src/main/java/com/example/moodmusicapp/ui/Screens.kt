@@ -51,11 +51,16 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.example.moodmusicapp.AuthState
+import com.example.moodmusicapp.AuthViewModel
+import com.example.moodmusicapp.JamendoViewModel
 import com.example.moodmusicapp.MediaManager
+import com.example.moodmusicapp.MusicPlayer
 import com.example.moodmusicapp.Song
 import com.example.moodmusicapp.SongRepository
-import com.example.moodmusicapp.YouTubeViewModel
+import com.example.moodmusicapp.YouTubePlayer
 import com.example.moodmusicapp.ui.theme.*
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -196,14 +201,14 @@ fun SongRow(
                 if (!song.imageUrl.isNullOrEmpty()) {
                     AsyncImage(
                         model = song.imageUrl,
-                        contentDescription = null,
+                        contentDescription = "Song Image",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
                 } else if (imageResId != 0) {
                     AsyncImage(
                         model = imageResId,
-                        contentDescription = null,
+                        contentDescription = "Song Image",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
                     )
@@ -272,13 +277,25 @@ fun SongRow(
     }
 }
 
-// --- LOGIN SCREEN ---
+// --- SIGN IN SCREEN ---
 
 @Composable
-fun LoginScreen(onLoginSuccess: () -> Unit) {
+fun SignInScreen(navController: NavController, authViewModel: AuthViewModel) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    val authState by authViewModel.authState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Authenticated) {
+            navController.navigate(Screen.Home.route) {
+                popUpTo(0) { inclusive = true }
+            }
+        } else if (authState is AuthState.Error) {
+            Toast.makeText(context, (authState as AuthState.Error).message, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -342,7 +359,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
             Spacer(modifier = Modifier.height(38.dp))
 
             Text(
-                text = "Feel thebeat.",
+                text = "Feel the beat.",
                 fontFamily = SyneFontFamily,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 27.sp,
@@ -383,13 +400,16 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                 }
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Button(
-                onClick = onLoginSuccess,
+                onClick = {
+                    authViewModel.signIn(email, password)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
+                enabled = authState !is AuthState.Loading,
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
                 contentPadding = PaddingValues()
@@ -403,13 +423,17 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "Sign In",
-                        fontFamily = SyneFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = Color.White
-                    )
+                    if (authState is AuthState.Loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                    } else {
+                        Text(
+                            text = "Sign In",
+                            fontFamily = SyneFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color.White
+                        )
+                    }
                 }
             }
 
@@ -461,7 +485,237 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
                     text = annotatedString,
                     fontSize = 13.sp,
                     fontFamily = DmSansFontFamily,
-                    modifier = Modifier.clickable { }
+                    modifier = Modifier.clickable { 
+                        navController.navigate(Screen.SignUp.route)
+                    }
+                )
+            }
+        }
+    }
+}
+
+// --- SIGN UP SCREEN ---
+
+@Composable
+fun SignUpScreen(navController: NavController, authViewModel: AuthViewModel) {
+    var username by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var confirmPasswordVisible by remember { mutableStateOf(false) }
+    
+    val authState by authViewModel.authState.collectAsState()
+    val context = LocalContext.current
+
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Authenticated) {
+            navController.navigate(Screen.Home.route) {
+                popUpTo(0) { inclusive = true }
+            }
+        } else if (authState is AuthState.Error) {
+            Toast.makeText(context, (authState as AuthState.Error).message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+            .drawBehind {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(BrandPurple.copy(alpha = 0.25f), Color.Transparent),
+                        center = Offset(0f, 0f),
+                        radius = 280.dp.toPx()
+                    ),
+                    radius = 280.dp.toPx(),
+                    center = Offset(0f, 0f)
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(BrandPink.copy(alpha = 0.18f), Color.Transparent),
+                        center = Offset(size.width, 0f),
+                        radius = 200.dp.toPx()
+                    ),
+                    radius = 200.dp.toPx(),
+                    center = Offset(size.width, 0f)
+                )
+            }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(top = 58.dp, bottom = 24.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .background(
+                            brush = Brush.linearGradient(listOf(BrandPurple, BrandPink)),
+                            shape = RoundedCornerShape(9.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.GraphicEq,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Arbitify",
+                    fontFamily = SyneFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    color = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(38.dp))
+
+            Text(
+                text = "Create Account",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 27.sp,
+                lineHeight = 32.sp,
+                color = Color.White
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Join Arbitify and feel the beat.",
+                fontFamily = DmSansFontFamily,
+                fontSize = 13.sp,
+                color = Color.White.copy(alpha = 0.4f)
+            )
+
+            Spacer(modifier = Modifier.height(26.dp))
+
+            ArbitifyTextField(
+                value = username,
+                onValueChange = { username = it },
+                placeholder = "Your name"
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            ArbitifyTextField(
+                value = email,
+                onValueChange = { email = it },
+                placeholder = "you@email.com",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            ArbitifyTextField(
+                value = password,
+                onValueChange = { password = it },
+                placeholder = "Password",
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    val icon = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(imageVector = icon, contentDescription = null, tint = Color.White.copy(alpha = 0.4f))
+                    }
+                }
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            ArbitifyTextField(
+                value = confirmPassword,
+                onValueChange = { confirmPassword = it },
+                placeholder = "Confirm Password",
+                visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    val icon = if (confirmPasswordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff
+                    IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+                        Icon(imageVector = icon, contentDescription = null, tint = Color.White.copy(alpha = 0.4f))
+                    }
+                }
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Button(
+                onClick = {
+                    if (username.isBlank()) {
+                        Toast.makeText(context, "Please enter a username", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (email.isBlank()) {
+                        Toast.makeText(context, "Please enter an email", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (password.length < 6) {
+                        Toast.makeText(context, "Password must be at least 6 characters", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (password != confirmPassword) {
+                        Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    authViewModel.signUp(username, email, password)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                enabled = authState !is AuthState.Loading,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                contentPadding = PaddingValues()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            brush = Brush.linearGradient(listOf(BrandPurple, BrandPink)),
+                            shape = RoundedCornerShape(14.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (authState is AuthState.Loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                    } else {
+                        Text(
+                            text = "Create Account",
+                            fontFamily = SyneFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                val annotatedString = buildAnnotatedString {
+                    withStyle(style = SpanStyle(color = Color(0x47FFFFFF))) {
+                        append("Already have an account? ")
+                    }
+                    withStyle(style = SpanStyle(color = Color(0xFFC084FC), fontWeight = FontWeight.Medium)) {
+                        append("Sign In")
+                    }
+                }
+
+                Text(
+                    text = annotatedString,
+                    fontSize = 13.sp,
+                    fontFamily = DmSansFontFamily,
+                    modifier = Modifier.clickable { 
+                        navController.navigate(Screen.Login.route)
+                    }
                 )
             }
         }
@@ -471,7 +725,8 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
 // --- HOME SCREEN ---
 
 @Composable
-fun HomeScreen(onMoodClick: (String) -> Unit) {
+fun HomeScreen(navController: NavController, authViewModel: AuthViewModel, onLogout: () -> Unit, onMoodClick: (String) -> Unit) {
+    val userName by authViewModel.currentUserName.collectAsState()
     val moods = listOf(
         MoodItem("Happy", MoodYellow, Icons.Default.Mood),
         MoodItem("Romantic", MoodPink, Icons.Default.Favorite),
@@ -496,26 +751,37 @@ fun HomeScreen(onMoodClick: (String) -> Unit) {
         ) {
             Column {
                 Text(
-                    text = "Good morning,",
-                    fontFamily = DmSansFontFamily,
-                    fontSize = 14.sp,
-                    color = Color.White.copy(alpha = 0.5f)
-                )
-                Text(
-                    text = "Alex 👋",
+                    text = buildAnnotatedString {
+                        append("Hello ")
+                        withStyle(style = SpanStyle(color = Color(0xFFC084FC))) {
+                            append(userName)
+                        }
+                        append(",")
+                    },
                     fontFamily = SyneFontFamily,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 24.sp,
                     color = Color.White
                 )
             }
-            IconButton(
-                onClick = { },
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.05f))
-            ) {
-                Icon(Icons.Default.Notifications, null, tint = Color.White)
+            Row {
+                IconButton(
+                    onClick = { },
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.05f))
+                ) {
+                    Icon(Icons.Default.Notifications, null, tint = Color.White)
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = onLogout,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.05f))
+                ) {
+                    Icon(Icons.Default.Logout, null, tint = Color.White)
+                }
             }
         }
 
@@ -595,14 +861,14 @@ fun HomeScreen(onMoodClick: (String) -> Unit) {
                     if (!song.imageUrl.isNullOrEmpty()) {
                         AsyncImage(
                             model = song.imageUrl,
-                            contentDescription = null,
+                            contentDescription = "Song Image",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
                     } else if (imageResId != 0) {
                         AsyncImage(
                             model = imageResId,
-                            contentDescription = null,
+                            contentDescription = "Song Image",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
@@ -747,37 +1013,47 @@ fun PlaylistScreen(
     moodName: String,
     onBack: () -> Unit = {},
     onNavigateToNowPlaying: () -> Unit = {},
-    youTubeViewModel: YouTubeViewModel = viewModel(factory = YouTubeViewModel.Companion.Factory())
+    jamendoViewModel: JamendoViewModel = viewModel(factory = JamendoViewModel.Factory())
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    var refreshTrigger by remember { mutableStateOf(0) }
     
-    val tracks by youTubeViewModel.tracks.collectAsState()
-    val isApiLoading by youTubeViewModel.isLoading.collectAsState()
-    val errorMessage by youTubeViewModel.errorMessage.collectAsState()
+    val tracks by jamendoViewModel.tracks.collectAsState()
+    val isLoading by jamendoViewModel.isLoading.collectAsState()
+    val error by jamendoViewModel.error.collectAsState()
 
     val currentSong by MediaManager.currentSongState.collectAsState()
     val isBuffering by MediaManager.isBuffering.collectAsState()
+    
+    val audioUrls = remember { mutableMapOf<String, String>() }
 
     LaunchedEffect(moodName) {
-        Log.d("ARBITIFY_DEBUG", "PlaylistScreen: Loading for mood $moodName")
-        youTubeViewModel.loadSongsForMood(moodName)
+        jamendoViewModel.loadTracksForMood(moodName)
     }
 
-    val moodSongs = remember(moodName, tracks, refreshTrigger) {
+    LaunchedEffect(error) {
+        error?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val moodSongs = remember(moodName, tracks) {
         if (tracks.isNotEmpty()) {
-            tracks.map { item ->
+            tracks.map { track ->
+                audioUrls[track.id] = track.audio
                 Song(
-                    id = item.id.videoId,
-                    title = item.snippet.title,
-                    artist = item.snippet.channelTitle,
-                    imageUrl = item.snippet.thumbnails.medium.url,
-                    mood = moodName
+                    id = track.id,
+                    title = track.name,
+                    artist = track.artist_name,
+                    imageUrl = track.album_image,
+                    mood = moodName,
+                    fileName = null
                 )
             }
-        } else {
+        } else if (!isLoading) {
             SongRepository.getSongsByMood(moodName)
+        } else {
+            emptyList()
         }
     }
 
@@ -788,12 +1064,6 @@ fun PlaylistScreen(
         "chill" -> MoodTeal
         "angry" -> MoodRed
         else -> BrandPurple
-    }
-
-    LaunchedEffect(errorMessage) {
-        errorMessage?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-        }
     }
 
     Column(
@@ -869,7 +1139,7 @@ fun PlaylistScreen(
                     modifier = Modifier.size(12.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                text(
+                Text(
                     text = moodName.uppercase(Locale.ROOT),
                     fontFamily = SyneFontFamily,
                     fontWeight = FontWeight.Bold,
@@ -899,7 +1169,12 @@ fun PlaylistScreen(
                     .clickable {
                         if (moodSongs.isNotEmpty()) {
                             val firstSong = moodSongs[0]
-                            if (firstSong.imageUrl != null) {
+                            val audioUrl = audioUrls[firstSong.id]
+                            if (audioUrl != null) {
+                                Log.d("JAMENDO", "Playing All: ${firstSong.title}, URL: $audioUrl")
+                                MusicPlayer.stop()
+                                YouTubePlayer.initialize(context)
+                                YouTubePlayer.playFromUrl(audioUrl)
                                 MediaManager.playYouTube(context, firstSong)
                             } else {
                                 val localSongs = SongRepository.getSongsByMood(firstSong.mood)
@@ -931,7 +1206,7 @@ fun PlaylistScreen(
         Spacer(modifier = Modifier.height(18.dp))
 
         Box(modifier = Modifier.fillMaxSize()) {
-            if (isApiLoading) {
+            if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = BrandPurple
@@ -950,16 +1225,21 @@ fun PlaylistScreen(
                         isLoading = isThisSongBuffering,
                         onClick = {
                             Log.d("PLAY_DEBUG", "Click: ${song.title}")
-                            if (song.imageUrl != null) {
+                            val audioUrl = audioUrls[song.id]
+                            if (audioUrl != null) {
+                                Log.d("JAMENDO", "Playing: ${song.title}, URL: $audioUrl")
+                                MusicPlayer.stop()
+                                YouTubePlayer.initialize(context)
+                                YouTubePlayer.playFromUrl(audioUrl)
                                 MediaManager.playYouTube(context, song)
                             } else {
                                 val localSongs = SongRepository.getSongsByMood(song.mood)
                                 MediaManager.playLocal(context, song, localSongs)
+                                Log.d("PLAY_DEBUG", "MusicPlayer local: ${song.title}")
                             }
                         },
                         onFavoriteToggle = {
                             song.isFavorite = !song.isFavorite
-                            refreshTrigger++
                         }
                     )
                 }
@@ -1080,14 +1360,14 @@ fun NowPlayingScreen(onBack: () -> Unit = {}) {
             if (!song?.imageUrl.isNullOrEmpty()) {
                 AsyncImage(
                     model = song?.imageUrl,
-                    contentDescription = null,
+                    contentDescription = "Song Image",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
             } else if (imageResId != 0) {
                 AsyncImage(
                     model = imageResId,
-                    contentDescription = null,
+                    contentDescription = "Song Image",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
@@ -1183,7 +1463,7 @@ fun NowPlayingScreen(onBack: () -> Unit = {}) {
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { 
+            IconButton(onClick = {
                 MediaManager.isShuffle = !MediaManager.isShuffle
                 isShuffle = MediaManager.isShuffle
             }) {
@@ -1287,14 +1567,14 @@ fun MiniPlayer(onExpand: () -> Unit) {
     val isPlaying by MediaManager.isPlaying.collectAsState()
 
     if (currentSong != null) {
-        val infiniteTransition = rememberInfiniteTransition()
+        val infiniteTransition = rememberInfiniteTransition(label = "Rotation")
         val rotation by infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = 360f,
             animationSpec = infiniteRepeatable(
                 animation = tween(15000, easing = LinearEasing),
                 repeatMode = RepeatMode.Restart
-            )
+            ), label = "Rotation"
         )
 
         Surface(
@@ -1327,14 +1607,14 @@ fun MiniPlayer(onExpand: () -> Unit) {
                     if (!currentSong?.imageUrl.isNullOrEmpty()) {
                         AsyncImage(
                             model = currentSong?.imageUrl,
-                            contentDescription = null,
+                            contentDescription = "Song Image",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else if (imageResId != 0) {
                         AsyncImage(
                             model = imageResId,
-                            contentDescription = null,
+                            contentDescription = "Song Image",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )

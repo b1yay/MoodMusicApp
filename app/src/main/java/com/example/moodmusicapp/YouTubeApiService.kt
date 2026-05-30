@@ -10,8 +10,7 @@ interface YouTubeApiService {
         @Query("part") part: String = "snippet",
         @Query("q") query: String,
         @Query("type") type: String = "video",
-        @Query("videoCategoryId") categoryId: String = "10",
-        @Query("maxResults") maxResults: Int = 10,
+        @Query("maxResults") maxResults: Int = 20,
         @Query("pageToken") pageToken: String? = null,
         @Query("key") apiKey: String
     ): Response<YouTubeSearchResponse>

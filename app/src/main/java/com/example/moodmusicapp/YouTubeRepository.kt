@@ -10,27 +10,27 @@ class YouTubeRepository {
 
     suspend fun searchByMood(mood: String, pageToken: String? = null): Pair<List<YouTubeItem>, String?> {
         val query = when (mood) {
-            "Happy" -> "happy pop hits songs"
-            "Sad" -> "sad emotional songs"
-            "Angry" -> "rock angry intense songs"
-            "Chill" -> "lofi chill beats music"
-            "Romantic" -> "romantic love songs"
-            else -> mood
+            "Happy" -> "happy upbeat pop music"
+            "Sad" -> "sad emotional acoustic music"
+            "Angry" -> "intense rock metal music"
+            "Chill" -> "lofi chill study beats"
+            "Romantic" -> "romantic acoustic love music"
+            else -> "$mood music"
         }
 
-        Log.d("YouTubeRepository", "Starting search for query: $query, pageToken: $pageToken")
+        Log.d("YouTubeRepository", "Searching YouTube for: $query")
         val response = apiService.searchVideos(query = query, pageToken = pageToken, apiKey = API_KEY)
         
         if (response.isSuccessful) {
             val body = response.body()
             val items = body?.items ?: emptyList()
             val nextToken = body?.nextPageToken
-            Log.d("YouTubeRepository", "Search successful. Items found: ${items.size}, nextToken: $nextToken")
+            Log.d("YouTubeRepository", "Found ${items.size} tracks")
             return Pair(items, nextToken)
         } else {
             val errorBody = response.errorBody()?.string()
-            Log.e("YouTubeRepository", "API Error: ${response.code()} ${response.message()} - $errorBody")
-            throw Exception("YouTube API Error: ${response.code()}")
+            Log.e("YouTubeRepository", "API Error: ${response.code()} - $errorBody")
+            throw Exception("YouTube API error")
         }
     }
 
@@ -40,7 +40,7 @@ class YouTubeRepository {
 
         private val apiService: YouTubeApiService by lazy {
             val logging = HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BODY
+                level = HttpLoggingInterceptor.Level.BASIC
             }
 
             val client = OkHttpClient.Builder()

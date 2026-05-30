@@ -4,12 +4,19 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -17,7 +24,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.moodmusicapp.ui.*
+import com.example.moodmusicapp.ui.theme.AppBackground
 import com.example.moodmusicapp.ui.theme.ArbitifyTheme
+import com.example.moodmusicapp.ui.theme.BrandPurple
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,7 +45,27 @@ fun MainScreen() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val showBottomBar = currentRoute != Screen.Login.route && currentRoute != Screen.NowPlaying.route
+    val authViewModel: AuthViewModel = viewModel()
+    val authState by authViewModel.authState.collectAsState()
+
+    val showBottomBar = currentRoute != Screen.Login.route && 
+                       currentRoute != Screen.SignUp.route && 
+                       currentRoute != Screen.NowPlaying.route && 
+                       authState is AuthState.Authenticated
+
+    if (authState is AuthState.Loading) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(AppBackground),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(color = BrandPurple)
+        }
+        return
+    }
+
+    val startDestination = if (authState is AuthState.Authenticated) Screen.Home.route else Screen.Login.route
 
     Scaffold(
         bottomBar = {
@@ -50,7 +79,7 @@ fun MainScreen() {
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Login.route,
+            startDestination = startDestination,
             modifier = Modifier.padding(innerPadding),
             enterTransition = { slideInHorizontally(initialOffsetX = { it }) },
             exitTransition = { slideOutHorizontally(targetOffsetX = { -it }) },
@@ -62,17 +91,31 @@ fun MainScreen() {
                 enterTransition = { EnterTransition.None },
                 exitTransition = { fadeOut() }
             ) {
-                LoginScreen(onLoginSuccess = {
-                    navController.navigate(Screen.Home.route) {
-                        popUpTo(Screen.Login.route) { inclusive = true }
-                    }
-                })
+                SignInScreen(navController, authViewModel)
+            }
+
+            composable(
+                route = Screen.SignUp.route,
+                enterTransition = { EnterTransition.None },
+                exitTransition = { fadeOut() }
+            ) {
+                SignUpScreen(navController, authViewModel)
             }
 
             composable(route = Screen.Home.route) {
-                HomeScreen(onMoodClick = { mood ->
-                    navController.navigate(Screen.Playlist.createRoute(mood))
-                })
+                HomeScreen(
+                    navController = navController,
+                    authViewModel = authViewModel,
+                    onLogout = {
+                        authViewModel.signOut()
+                        navController.navigate(Screen.Login.route) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    onMoodClick = { mood ->
+                        navController.navigate(Screen.Playlist.createRoute(mood))
+                    }
+                )
             }
 
             composable(

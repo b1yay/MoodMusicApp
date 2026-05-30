@@ -1,0 +1,91 @@
+package com.example.moodmusicapp
+
+import androidx.lifecycle.ViewModel
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.UserProfileChangeRequest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+class AuthViewModel : ViewModel() {
+
+    private val auth = FirebaseAuth.getInstance()
+
+    private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
+    val authState = _authState.asStateFlow()
+
+    private val _currentUserName = MutableStateFlow<String>("User")
+    val currentUserName = _currentUserName.asStateFlow()
+
+    init {
+        checkCurrentUser()
+    }
+
+    fun checkCurrentUser() {
+        val user = auth.currentUser
+        if (user != null) {
+            _currentUserName.value = user.displayName ?: user.email?.substringBefore("@") ?: "User"
+            _authState.value = AuthState.Authenticated
+        } else {
+            _authState.value = AuthState.Unauthenticated
+        }
+    }
+
+    fun signUp(name: String, email: String, password: String) {
+        _authState.value = AuthState.Loading
+        auth.createUserWithEmailAndPassword(email, password)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    // Save display name
+                    val profileUpdates = UserProfileChangeRequest.Builder()
+                        .setDisplayName(name)
+                        .build()
+                    auth.currentUser?.updateProfile(profileUpdates)
+                        ?.addOnCompleteListener { profileTask ->
+                            if (profileTask.isSuccessful) {
+                                _currentUserName.value = name
+                                _authState.value = AuthState.Authenticated
+                            } else {
+                                _authState.value = AuthState.Error(
+                                    profileTask.exception?.message ?: "Profile update failed"
+                                )
+                            }
+                        }
+                } else {
+                    _authState.value = AuthState.Error(
+                        task.exception?.message ?: "Sign up failed"
+                    )
+                }
+            }
+    }
+
+    fun signIn(email: String, password: String) {
+        _authState.value = AuthState.Loading
+        auth.signInWithEmailAndPassword(email, password)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    val user = auth.currentUser
+                    _currentUserName.value = user?.displayName 
+                        ?: user?.email?.substringBefore("@") 
+                        ?: "User"
+                    _authState.value = AuthState.Authenticated
+                } else {
+                    _authState.value = AuthState.Error(
+                        task.exception?.message ?: "Sign in failed"
+                    )
+                }
+            }
+    }
+
+    fun signOut() {
+        auth.signOut()
+        _currentUserName.value = "User"
+        _authState.value = AuthState.Unauthenticated
+    }
+}
+
+sealed class AuthState {
+    data object Loading : AuthState()
+    data object Authenticated : AuthState()
+    data object Unauthenticated : AuthState()
+    data class Error(val message: String) : AuthState()
+}

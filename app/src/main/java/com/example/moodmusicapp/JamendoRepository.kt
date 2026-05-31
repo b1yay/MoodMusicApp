@@ -30,6 +30,22 @@ class JamendoRepository {
         }
     }
 
+    suspend fun searchByQuery(query: String): List<JamendoTrack> {
+        return try {
+            val response = apiService.searchTracks(
+                clientId = CLIENT_ID,
+                tags = query,
+                nameSearch = query
+            )
+            if (response.isSuccessful) {
+                response.body()?.results ?: emptyList()
+            } else emptyList()
+        } catch (e: Exception) {
+            Log.e("JAMENDO", "Search error: ${e.message}")
+            emptyList()
+        }
+    }
+
     companion object {
         private const val CLIENT_ID = "b97b7009"
         private const val BASE_URL = "https://api.jamendo.com/v3.0/"

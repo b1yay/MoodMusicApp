@@ -47,6 +47,8 @@ fun MainScreen() {
 
     val authViewModel: AuthViewModel = viewModel()
     val authState by authViewModel.authState.collectAsState()
+    val jamendoViewModel: JamendoViewModel = viewModel(factory = JamendoViewModel.Factory())
+    val favouritesViewModel: FavouritesViewModel = viewModel(factory = FavouritesViewModel.Companion.Factory())
 
     val showBottomBar = currentRoute != Screen.Login.route && 
                        currentRoute != Screen.SignUp.route && 
@@ -106,6 +108,7 @@ fun MainScreen() {
                 HomeScreen(
                     navController = navController,
                     authViewModel = authViewModel,
+                    favouritesViewModel = favouritesViewModel,
                     onLogout = {
                         authViewModel.signOut()
                         navController.navigate(Screen.Login.route) {
@@ -126,14 +129,19 @@ fun MainScreen() {
                 PlaylistScreen(
                     moodName = mood,
                     onBack = { navController.popBackStack() },
-                    onNavigateToNowPlaying = { navController.navigate(Screen.NowPlaying.route) }
+                    onNavigateToNowPlaying = { navController.navigate(Screen.NowPlaying.route) },
+                    jamendoViewModel = jamendoViewModel,
+                    favouritesViewModel = favouritesViewModel
                 )
             }
 
             composable(route = Screen.Favourites.route) {
-                FavouritesScreen(onNavigateToNowPlaying = {
-                    navController.navigate(Screen.NowPlaying.route)
-                })
+                FavouritesScreen(
+                    favouritesViewModel = favouritesViewModel,
+                    onNavigateToNowPlaying = {
+                        navController.navigate(Screen.NowPlaying.route)
+                    }
+                )
             }
 
             composable(
@@ -141,11 +149,42 @@ fun MainScreen() {
                 enterTransition = { slideInVertically(initialOffsetY = { it }) },
                 exitTransition = { slideOutVertically(targetOffsetY = { it }) }
             ) {
-                NowPlayingScreen(onBack = { navController.popBackStack() })
+                NowPlayingScreen(
+                    favouritesViewModel = favouritesViewModel,
+                    onBack = { navController.popBackStack() }
+                )
             }
 
-            composable(route = "discover") { PlaceholderScreen("Discover") }
-            composable(route = "profile") { PlaceholderScreen("Profile") }
+            composable(route = Screen.Discover.route) {
+                DiscoverScreen(
+                    navController = navController,
+                    jamendoViewModel = jamendoViewModel,
+                    favouritesViewModel = favouritesViewModel
+                )
+            }
+            composable(route = Screen.Profile.route) {
+                ProfileScreen(
+                    navController = navController,
+                    authViewModel = authViewModel,
+                    favouritesViewModel = favouritesViewModel
+                )
+            }
+            composable(route = "editprofile") {
+                EditProfileScreen(navController = navController, authViewModel = authViewModel)
+            }
+            composable(route = "privacy") {
+                PrivacyScreen(
+                    navController = navController,
+                    authViewModel = authViewModel,
+                    favouritesViewModel = favouritesViewModel
+                )
+            }
+            composable(route = "notifications") {
+                NotificationScreen(navController = navController)
+            }
+            composable(route = "about") {
+                AboutScreen(navController = navController)
+            }
         }
     }
 }

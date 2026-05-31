@@ -1,8 +1,14 @@
 package com.example.moodmusicapp.ui
 
+import android.Manifest
+import android.app.TimePickerDialog
+import android.content.Context
 import android.graphics.BlurMaskFilter
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -12,14 +18,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.filled.*
@@ -41,7 +52,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -50,20 +63,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import coil.compose.AsyncImage
 import com.example.moodmusicapp.AuthState
 import com.example.moodmusicapp.AuthViewModel
+import com.example.moodmusicapp.FavouritesRepository
+import com.example.moodmusicapp.FavouritesViewModel
 import com.example.moodmusicapp.JamendoViewModel
 import com.example.moodmusicapp.MediaManager
+import com.example.moodmusicapp.MoodReminderWorker
 import com.example.moodmusicapp.MusicPlayer
 import com.example.moodmusicapp.Song
 import com.example.moodmusicapp.SongRepository
 import com.example.moodmusicapp.YouTubePlayer
 import com.example.moodmusicapp.ui.theme.*
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
+import java.util.Calendar
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 // --- SHARED COMPONENTS ---
 
@@ -129,6 +150,8 @@ fun SongRow(
     totalCount: Int,
     showNumber: Boolean = false,
     isLoading: Boolean = false,
+    isNew: Boolean = false,
+    isFavourite: Boolean = song.isFavorite,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit
 ) {
@@ -253,6 +276,23 @@ fun SongRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+
+            if (isNew) {
+                Surface(
+                    color = BrandPurple.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.padding(end = 8.dp)
+                ) {
+                    Text(
+                        text = "New",
+                        color = LightPurple,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
             Text(
                 text = "3:45",
                 fontSize = 11.sp,
@@ -264,9 +304,9 @@ fun SongRow(
                 modifier = Modifier.size(24.dp)
             ) {
                 Icon(
-                    imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Default.FavoriteBorder,
+                    imageVector = if (isFavourite) Icons.Filled.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = null,
-                    tint = if (song.isFavorite) BrandPink else Color.White.copy(alpha = 0.3f),
+                    tint = if (isFavourite) BrandPink else Color.White.copy(alpha = 0.3f),
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -725,7 +765,13 @@ fun SignUpScreen(navController: NavController, authViewModel: AuthViewModel) {
 // --- HOME SCREEN ---
 
 @Composable
-fun HomeScreen(navController: NavController, authViewModel: AuthViewModel, onLogout: () -> Unit, onMoodClick: (String) -> Unit) {
+fun HomeScreen(
+    navController: NavController,
+    authViewModel: AuthViewModel,
+    favouritesViewModel: FavouritesViewModel,
+    onLogout: () -> Unit,
+    onMoodClick: (String) -> Unit
+) {
     val userName by authViewModel.currentUserName.collectAsState()
     val moods = listOf(
         MoodItem("Happy", MoodYellow, Icons.Default.Mood),
@@ -806,7 +852,10 @@ fun HomeScreen(navController: NavController, authViewModel: AuthViewModel, onLog
                 rowMoods.forEach { mood ->
                     MoodCard(
                         mood = mood,
-                        onClick = { onMoodClick(mood.name) },
+                        onClick = {
+                            favouritesViewModel.recordMoodUsed(mood.name)
+                            onMoodClick(mood.name)
+                        },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -855,6 +904,7 @@ fun HomeScreen(navController: NavController, authViewModel: AuthViewModel, onLog
                                 val localSongs = SongRepository.getSongsByMood(song.mood)
                                 MediaManager.playLocal(context, song, localSongs)
                             }
+                            favouritesViewModel.recordSongPlayed()
                         },
                     contentAlignment = Alignment.BottomStart
                 ) {
@@ -951,13 +1001,645 @@ fun MoodCard(mood: MoodItem, onClick: () -> Unit, modifier: Modifier = Modifier)
     }
 }
 
+// --- DISCOVER SCREEN ---
+
+@Composable
+fun DiscoverScreen(
+    navController: NavController,
+    jamendoViewModel: JamendoViewModel,
+    favouritesViewModel: FavouritesViewModel
+) {
+    val tracks by jamendoViewModel.tracks.collectAsState()
+    val isLoading by jamendoViewModel.isLoading.collectAsState()
+    val favourites by favouritesViewModel.favourites.collectAsState()
+    val favouriteIds = remember(favourites) { favourites.map { it.id }.toSet() }
+    var selectedMood by remember { mutableStateOf("All") }
+    val moods = listOf("All", "Happy", "Sad", "Chill", "Angry", "Romantic")
+    val context = LocalContext.current
+
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedMood, isSearchActive) {
+        if (!isSearchActive) {
+            jamendoViewModel.loadTracksForMood(if (selectedMood == "All") "" else selectedMood)
+        }
+    }
+
+    // Debounce search — auto-search as the user types
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isNotBlank()) {
+            delay(500)
+            jamendoViewModel.searchTracks(searchQuery)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0C0C18))
+            .padding(horizontal = 24.dp)
+            .padding(top = 58.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Discover",
+                    fontFamily = SyneFontFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 22.sp,
+                    color = Color.White
+                )
+                Text(
+                    text = "Find new music by mood",
+                    fontFamily = DmSansFontFamily,
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.4f)
+                )
+            }
+            IconButton(
+                onClick = { },
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.05f))
+            ) {
+                Icon(Icons.Default.Notifications, null, tint = Color.White)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Search Bar (functional)
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = {
+                searchQuery = it
+                isSearchActive = it.isNotBlank()
+            },
+            placeholder = {
+                Text(
+                    "Search songs, artists...",
+                    color = Color.White.copy(alpha = 0.3f),
+                    fontSize = 14.sp,
+                    fontFamily = DmSansFontFamily
+                )
+            },
+            leadingIcon = { Icon(Icons.Outlined.Search, null, tint = Color.White.copy(alpha = 0.4f)) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = {
+                        searchQuery = ""
+                        isSearchActive = false
+                    }) {
+                        Icon(Icons.Outlined.Close, "Clear", tint = Color.White.copy(alpha = 0.4f))
+                    }
+                }
+            },
+            singleLine = true,
+            textStyle = TextStyle(color = Color.White, fontSize = 14.sp, fontFamily = DmSansFontFamily),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(
+                onSearch = {
+                    if (searchQuery.isNotBlank()) {
+                        jamendoViewModel.searchTracks(searchQuery)
+                    }
+                }
+            ),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFFA855F7),
+                unfocusedBorderColor = Color(0x18FFFFFF),
+                focusedContainerColor = Color(0x0EFFFFFF),
+                unfocusedContainerColor = Color(0x0EFFFFFF),
+                cursorColor = Color(0xFFA855F7)
+            )
+        )
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        if (isSearchActive) {
+            // --- SEARCH RESULTS VIEW ---
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = BrandPurple)
+                }
+            } else if (tracks.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "No results for \"$searchQuery\"",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 14.sp,
+                        fontFamily = DmSansFontFamily
+                    )
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(tracks) { index, track ->
+                        val song = Song(
+                            id = track.id,
+                            title = track.name,
+                            artist = track.artist_name,
+                            imageUrl = track.album_image,
+                            mood = selectedMood,
+                            fileName = null
+                        )
+                        SongRow(
+                            song = song,
+                            index = index,
+                            totalCount = tracks.size,
+                            isFavourite = favouriteIds.contains(song.id),
+                            onClick = {
+                                YouTubePlayer.initialize(context)
+                                YouTubePlayer.playFromUrl(track.audio)
+                                MediaManager.playYouTube(context, song)
+                                favouritesViewModel.recordSongPlayed()
+                                navController.navigate(Screen.NowPlaying.route)
+                            },
+                            onFavoriteToggle = { favouritesViewModel.toggleFavourite(song) }
+                        )
+                    }
+                }
+            }
+        } else {
+
+        Text(
+            text = "BROWSE BY MOOD",
+            fontFamily = SyneFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.35f),
+            letterSpacing = 1.2.sp
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(moods.size) { index ->
+                val mood = moods[index]
+                val isSelected = selectedMood == mood
+                Surface(
+                    onClick = { selectedMood = mood },
+                    shape = RoundedCornerShape(100.dp),
+                    color = if (isSelected) Color(0x28A855F7) else Color(0xFFFFFFFF).copy(alpha = 0.05f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isSelected) Color(0x47A855F7) else Color(0xFFFFFFFF).copy(alpha = 0.1f)
+                    )
+                ) {
+                    Text(
+                        text = mood,
+                        color = if (isSelected) Color(0xFFC084FC) else Color(0xFFFFFFFF).copy(alpha = 0.35f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = DmSansFontFamily,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = BrandPurple)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
+                item {
+                    Text(
+                        text = "TRENDING NOW",
+                        fontFamily = SyneFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.35f),
+                        letterSpacing = 1.2.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.height(230.dp)
+                    ) {
+                        val trending = tracks.take(4)
+                        items(trending) { track ->
+                            Card(
+                                onClick = {
+                                    val song = Song(
+                                        id = track.id,
+                                        title = track.name,
+                                        artist = track.artist_name,
+                                        imageUrl = track.album_image,
+                                        mood = selectedMood,
+                                        fileName = null
+                                    )
+                                    YouTubePlayer.initialize(context)
+                                    YouTubePlayer.playFromUrl(track.audio)
+                                    MediaManager.playYouTube(context, song)
+                                    favouritesViewModel.recordSongPlayed()
+                                    navController.navigate(Screen.NowPlaying.route)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF13131F))
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(70.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(BrandPurple.copy(alpha = 0.1f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.MusicNote,
+                                            null,
+                                            tint = BrandPurple,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        if (!track.album_image.isNullOrEmpty()) {
+                                            AsyncImage(
+                                                model = track.album_image,
+                                                contentDescription = null,
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(
+                                        text = track.name,
+                                        fontFamily = SyneFontFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = track.artist_name,
+                                        fontFamily = DmSansFontFamily,
+                                        fontSize = 11.sp,
+                                        color = Color.White.copy(alpha = 0.4f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Text(
+                        text = "NEW RELEASES",
+                        fontFamily = SyneFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.35f),
+                        letterSpacing = 1.2.sp
+                    )
+                }
+
+                val newReleases = tracks.drop(4)
+                itemsIndexed(newReleases) { index, track ->
+                    val song = Song(
+                        id = track.id,
+                        title = track.name,
+                        artist = track.artist_name,
+                        imageUrl = track.album_image,
+                        mood = selectedMood,
+                        fileName = null
+                    )
+                    SongRow(
+                        song = song,
+                        index = index,
+                        totalCount = newReleases.size,
+                        isNew = true,
+                        isFavourite = favouriteIds.contains(song.id),
+                        onClick = {
+                            YouTubePlayer.initialize(context)
+                            YouTubePlayer.playFromUrl(track.audio)
+                            MediaManager.playYouTube(context, song)
+                            favouritesViewModel.recordSongPlayed()
+                            navController.navigate(Screen.NowPlaying.route)
+                        },
+                        onFavoriteToggle = { favouritesViewModel.toggleFavourite(song) }
+                    )
+                }
+            }
+        }
+        }
+    }
+}
+
+// --- PROFILE SCREEN ---
+
+@Composable
+fun ProfileScreen(
+    navController: NavController,
+    authViewModel: AuthViewModel,
+    favouritesViewModel: FavouritesViewModel
+) {
+    val userName by authViewModel.currentUserName.collectAsState()
+    val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: ""
+    val songsPlayed by favouritesViewModel.songsPlayed.collectAsState()
+    val favCount by favouritesViewModel.count.collectAsState()
+    val moodsUsed by favouritesViewModel.moodsUsed.collectAsState()
+    
+    val initials = remember(userName) {
+        userName.split(" ")
+            .filter { it.isNotBlank() }
+            .take(2)
+            .map { it.first().uppercase() }
+            .joinToString("")
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+            .verticalScroll(rememberScrollState())
+    ) {
+        // Hero Box
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(130.dp)
+                .background(
+                    brush = Brush.linearGradient(
+                        listOf(BrandPurple.copy(alpha = 0.2f), BrandPink.copy(alpha = 0.2f))
+                    )
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 24.dp)
+                .offset(y = (-36).dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                // Avatar
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(
+                            brush = Brush.linearGradient(listOf(BrandPurple, BrandPink))
+                        )
+                        .border(3.dp, AppBackground, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = initials,
+                        fontFamily = SyneFontFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 24.sp,
+                        color = Color.White
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { navController.navigate("editprofile") },
+                    shape = RoundedCornerShape(100.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.15f)),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text(
+                        "Edit Profile",
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        fontFamily = DmSansFontFamily
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = userName,
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 20.sp,
+                color = Color.White
+            )
+            Text(
+                text = userEmail,
+                fontFamily = DmSansFontFamily,
+                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.4f)
+            )
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            // Stats Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                StatCard("Songs Played", songsPlayed.toString(), Modifier.weight(1f))
+                StatCard("Favourites", favCount.toString(), Modifier.weight(1f))
+                StatCard("Moods Used", moodsUsed.toString(), Modifier.weight(1f))
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text(
+                text = "MOOD HISTORY",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.35f),
+                letterSpacing = 1.2.sp
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val moods = listOf(
+                    MoodItem("Happy", MoodYellow, Icons.Default.Mood),
+                    MoodItem("Sad", MoodBlue, Icons.Default.SentimentVeryDissatisfied),
+                    MoodItem("Chill", MoodTeal, Icons.Default.SelfImprovement),
+                    MoodItem("Angry", MoodRed, Icons.Default.Bolt),
+                    MoodItem("Romantic", MoodPink, Icons.Default.Favorite)
+                )
+                moods.forEach { mood ->
+                    Surface(
+                        color = mood.color.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(100.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp)
+                        ) {
+                            Icon(mood.icon, null, tint = mood.color, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(mood.name, color = mood.color, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text(
+                text = "SETTINGS",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.35f),
+                letterSpacing = 1.2.sp
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            SettingsRow(Icons.Default.Notifications, "Notifications", "Manage your alerts", Color(0xFFA855F7)) {
+                navController.navigate("notifications")
+            }
+            SettingsRow(Icons.Default.Lock, "Privacy", "Security and data", Color(0xFF60A5FA)) {
+                navController.navigate("privacy")
+            }
+            SettingsRow(Icons.Default.Info, "About Arbitify", "Version 1.0.0", Color(0xFF34D399)) {
+                navController.navigate("about")
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(
+                onClick = {
+                    authViewModel.signOut()
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0x19F87171)),
+                border = BorderStroke(1.dp, Color(0x40F87171))
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Logout, null, tint = Color(0xFFF87171), modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Sign Out",
+                        color = Color(0xFFF87171),
+                        fontFamily = SyneFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(100.dp))
+        }
+    }
+}
+
+@Composable
+fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.height(85.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF13131F))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = value,
+                color = Color(0xFFC084FC),
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp
+            )
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.3f),
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 12.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun SettingsRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    iconColor: Color,
+    titleColor: Color = Color.White,
+    onClick: () -> Unit = {}
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(iconColor.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = iconColor, modifier = Modifier.size(18.dp))
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = titleColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = Color.White.copy(alpha = 0.35f), fontSize = 11.sp)
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            null,
+            tint = Color.White.copy(alpha = 0.2f),
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
 // --- FAVOURITES SCREEN ---
 
 @Composable
-fun FavouritesScreen(onNavigateToNowPlaying: () -> Unit = {}) {
+fun FavouritesScreen(
+    favouritesViewModel: FavouritesViewModel,
+    onNavigateToNowPlaying: () -> Unit = {}
+) {
     val context = LocalContext.current
-    var refreshTrigger by remember { mutableStateOf(0) }
-    val favoriteSongs = remember(refreshTrigger) { SongRepository.getFavoriteSongs() }
+    val songs by favouritesViewModel.favourites.collectAsState()
+    val isLoading by favouritesViewModel.isLoading.collectAsState()
 
     Column(
         modifier = Modifier
@@ -974,33 +1656,54 @@ fun FavouritesScreen(onNavigateToNowPlaying: () -> Unit = {}) {
             color = Color.White
         )
         Text(
-            text = "${favoriteSongs.size} songs you loved",
+            text = "${songs.size} songs you loved",
             fontFamily = DmSansFontFamily,
             fontSize = 12.sp,
             color = Color.White.copy(alpha = 0.32f)
         )
         Spacer(modifier = Modifier.height(20.dp))
 
-        LazyColumn {
-            itemsIndexed(favoriteSongs) { index, song ->
-                SongRow(
-                    song = song,
-                    index = index,
-                    totalCount = favoriteSongs.size,
-                    onClick = {
-                        if (song.imageUrl != null) {
-                            MediaManager.playYouTube(context, song)
-                        } else {
-                            val localSongs = SongRepository.getSongsByMood(song.mood)
-                            MediaManager.playLocal(context, song, localSongs)
-                        }
-                        onNavigateToNowPlaying()
-                    },
-                    onFavoriteToggle = {
-                        song.isFavorite = !song.isFavorite
-                        refreshTrigger++
+        when {
+            isLoading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = BrandPurple)
+                }
+            }
+            songs.isEmpty() -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "No favourites yet. Pick a mood and heart a song!",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 14.sp,
+                        fontFamily = DmSansFontFamily,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+            else -> {
+                LazyColumn {
+                    itemsIndexed(songs) { index, song ->
+                        SongRow(
+                            song = song,
+                            index = index,
+                            totalCount = songs.size,
+                            isFavourite = true,
+                            onClick = {
+                                if (song.imageUrl != null) {
+                                    MediaManager.playYouTube(context, song)
+                                } else {
+                                    val localSongs = SongRepository.getSongsByMood(song.mood)
+                                    MediaManager.playLocal(context, song, localSongs)
+                                }
+                                favouritesViewModel.recordSongPlayed()
+                                onNavigateToNowPlaying()
+                            },
+                            onFavoriteToggle = {
+                                favouritesViewModel.toggleFavourite(song)
+                            }
+                        )
                     }
-                )
+                }
             }
         }
     }
@@ -1013,14 +1716,18 @@ fun PlaylistScreen(
     moodName: String,
     onBack: () -> Unit = {},
     onNavigateToNowPlaying: () -> Unit = {},
-    jamendoViewModel: JamendoViewModel = viewModel(factory = JamendoViewModel.Factory())
+    jamendoViewModel: JamendoViewModel,
+    favouritesViewModel: FavouritesViewModel
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
-    
+
     val tracks by jamendoViewModel.tracks.collectAsState()
     val isLoading by jamendoViewModel.isLoading.collectAsState()
     val error by jamendoViewModel.error.collectAsState()
+
+    val favourites by favouritesViewModel.favourites.collectAsState()
+    val favouriteIds = remember(favourites) { favourites.map { it.id }.toSet() }
 
     val currentSong by MediaManager.currentSongState.collectAsState()
     val isBuffering by MediaManager.isBuffering.collectAsState()
@@ -1180,6 +1887,7 @@ fun PlaylistScreen(
                                 val localSongs = SongRepository.getSongsByMood(firstSong.mood)
                                 MediaManager.playLocal(context, firstSong, localSongs)
                             }
+                            favouritesViewModel.recordSongPlayed()
                             onNavigateToNowPlaying()
                         }
                     }
@@ -1223,6 +1931,7 @@ fun PlaylistScreen(
                         totalCount = moodSongs.size,
                         showNumber = true,
                         isLoading = isThisSongBuffering,
+                        isFavourite = favouriteIds.contains(song.id),
                         onClick = {
                             Log.d("PLAY_DEBUG", "Click: ${song.title}")
                             val audioUrl = audioUrls[song.id]
@@ -1237,9 +1946,10 @@ fun PlaylistScreen(
                                 MediaManager.playLocal(context, song, localSongs)
                                 Log.d("PLAY_DEBUG", "MusicPlayer local: ${song.title}")
                             }
+                            favouritesViewModel.recordSongPlayed()
                         },
                         onFavoriteToggle = {
-                            song.isFavorite = !song.isFavorite
+                            favouritesViewModel.toggleFavourite(song)
                         }
                     )
                 }
@@ -1252,7 +1962,10 @@ fun PlaylistScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NowPlayingScreen(onBack: () -> Unit = {}) {
+fun NowPlayingScreen(
+    favouritesViewModel: FavouritesViewModel,
+    onBack: () -> Unit = {}
+) {
     val context = LocalContext.current
     val currentSong by MediaManager.currentSongState.collectAsState()
     val isPlaying by MediaManager.isPlaying.collectAsState()
@@ -1271,7 +1984,10 @@ fun NowPlayingScreen(onBack: () -> Unit = {}) {
     val sheetState = rememberModalBottomSheetState()
 
     LaunchedEffect(currentSong) {
-        isFavorite = currentSong?.isFavorite ?: false
+        val song = currentSong
+        isFavorite = if (song != null) {
+            try { FavouritesRepository.isFavourite(song.id) } catch (e: Exception) { false }
+        } else false
     }
 
     LaunchedEffect(isPlaying) {
@@ -1421,8 +2137,9 @@ fun NowPlayingScreen(onBack: () -> Unit = {}) {
                 color = if (isFavorite) BrandPink else Color.White.copy(alpha = 0.3f),
                 onClick = {
                     currentSong?.let {
-                        it.isFavorite = !it.isFavorite
-                        isFavorite = it.isFavorite
+                        favouritesViewModel.toggleFavourite(it)
+                        isFavorite = !isFavorite
+                        it.isFavorite = isFavorite
                     }
                 }
             )
@@ -1463,6 +2180,8 @@ fun NowPlayingScreen(onBack: () -> Unit = {}) {
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            @Suppress("UNUSED_VARIABLE")
+            val dummy = 0 // Spacer workaround if needed
             IconButton(onClick = {
                 MediaManager.isShuffle = !MediaManager.isShuffle
                 isShuffle = MediaManager.isShuffle
@@ -1702,6 +2421,1073 @@ fun PlaceholderScreen(name: String) {
         contentAlignment = Alignment.Center
     ) {
         Text(text = name, color = Color.White)
+    }
+}
+
+// --- EDIT PROFILE SCREEN ---
+
+@Composable
+fun EditProfileScreen(navController: NavController, authViewModel: AuthViewModel) {
+    val context = LocalContext.current
+    val userName by authViewModel.currentUserName.collectAsState()
+    val authState by authViewModel.authState.collectAsState()
+    val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: ""
+
+    var nameField by remember { mutableStateOf(authViewModel.currentUserName.value) }
+    var saving by remember { mutableStateOf(false) }
+
+    val initials = remember(nameField) {
+        nameField.split(" ")
+            .filter { it.isNotBlank() }
+            .take(2)
+            .map { it.first().uppercase() }
+            .joinToString("")
+            .ifEmpty { "U" }
+    }
+
+    LaunchedEffect(authState) {
+        if (!saving) return@LaunchedEffect
+        when (authState) {
+            is AuthState.Authenticated -> {
+                saving = false
+                Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
+                navController.popBackStack()
+            }
+            is AuthState.Error -> {
+                saving = false
+                Toast.makeText(context, (authState as AuthState.Error).message, Toast.LENGTH_LONG).show()
+            }
+            else -> {}
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+            .padding(top = 52.dp, bottom = 24.dp)
+    ) {
+        // Top bar
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White.copy(alpha = 0.7f)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Edit Profile",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                color = Color.White
+            )
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        // Avatar
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .align(Alignment.CenterHorizontally)
+                .clip(CircleShape)
+                .background(brush = Brush.linearGradient(listOf(BrandPurple, BrandPink))),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = initials,
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 30.sp,
+                color = Color.White
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Change avatar color",
+            color = Color(0xFFC084FC),
+            fontSize = 12.sp,
+            fontFamily = DmSansFontFamily,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { Toast.makeText(context, "Coming soon!", Toast.LENGTH_SHORT).show() }
+                .padding(8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        Text(
+            text = "DISPLAY NAME",
+            fontFamily = SyneFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.35f),
+            letterSpacing = 1.2.sp
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        ArbitifyTextField(
+            value = nameField,
+            onValueChange = { nameField = it },
+            placeholder = "Your name"
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "EMAIL",
+            fontFamily = SyneFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.35f),
+            letterSpacing = 1.2.sp
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.White.copy(alpha = 0.04f))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Lock,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.3f),
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = userEmail,
+                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 14.sp,
+                fontFamily = DmSansFontFamily
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Contact support to change email",
+            color = Color.White.copy(alpha = 0.3f),
+            fontSize = 11.sp,
+            fontFamily = DmSansFontFamily
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Button(
+            onClick = {
+                saving = true
+                authViewModel.updateDisplayName(nameField)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            enabled = authState !is AuthState.Loading,
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+            contentPadding = PaddingValues()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        brush = Brush.linearGradient(listOf(BrandPurple, BrandPink)),
+                        shape = RoundedCornerShape(14.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                if (authState is AuthState.Loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                } else {
+                    Text(
+                        text = "Save Changes",
+                        fontFamily = SyneFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+// --- PRIVACY SCREEN ---
+
+@Composable
+fun PrivacyScreen(
+    navController: NavController,
+    authViewModel: AuthViewModel,
+    favouritesViewModel: FavouritesViewModel
+) {
+    val context = LocalContext.current
+    val authState by authViewModel.authState.collectAsState()
+    val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: ""
+
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showClearDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(authState) {
+        when (authState) {
+            is AuthState.Unauthenticated -> navController.navigate(Screen.Login.route) {
+                popUpTo(0) { inclusive = true }
+            }
+            is AuthState.Error -> Toast.makeText(
+                context,
+                (authState as AuthState.Error).message,
+                Toast.LENGTH_LONG
+            ).show()
+            else -> {}
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+            .padding(top = 52.dp, bottom = 24.dp)
+    ) {
+        // Top bar
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White.copy(alpha = 0.7f)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Privacy & Security",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                color = Color.White
+            )
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        Text(
+            text = "ACCOUNT SECURITY",
+            fontFamily = SyneFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.35f),
+            letterSpacing = 1.2.sp
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        SettingsRow(
+            icon = Icons.Default.Lock,
+            title = "Change Password",
+            subtitle = "Send reset link to your email",
+            iconColor = Color(0xFF60A5FA),
+            onClick = { showPasswordDialog = true }
+        )
+        SettingsRow(
+            icon = Icons.Default.Delete,
+            title = "Delete Account",
+            subtitle = "Permanently delete your account",
+            iconColor = Color(0xFFF87171),
+            titleColor = Color(0xFFF87171),
+            onClick = { showDeleteDialog = true }
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "DATA",
+            fontFamily = SyneFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.35f),
+            letterSpacing = 1.2.sp
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        SettingsRow(
+            icon = Icons.Default.HeartBroken,
+            title = "Clear Favourites",
+            subtitle = "Remove all saved songs",
+            iconColor = Color(0xFFF472B6),
+            onClick = { showClearDialog = true }
+        )
+    }
+
+    if (showPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasswordDialog = false },
+            containerColor = Color(0xFF13131F),
+            title = { Text("Reset Password", color = Color.White, fontFamily = SyneFontFamily) },
+            text = {
+                Text(
+                    "A password reset link will be sent to $userEmail",
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showPasswordDialog = false
+                    authViewModel.sendPasswordReset()
+                }) {
+                    Text("Send Link", color = Color(0xFFC084FC))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasswordDialog = false }) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.5f))
+                }
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            containerColor = Color(0xFF13131F),
+            title = { Text("Delete Account", color = Color.White, fontFamily = SyneFontFamily) },
+            text = {
+                Text(
+                    "This action cannot be undone. All your data will be deleted.",
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    authViewModel.deleteAccount()
+                }) {
+                    Text("Delete", color = Color(0xFFF87171))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.5f))
+                }
+            }
+        )
+    }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            containerColor = Color(0xFF13131F),
+            title = { Text("Clear Favourites", color = Color.White, fontFamily = SyneFontFamily) },
+            text = {
+                Text(
+                    "Remove all saved songs from your favourites?",
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearDialog = false
+                    favouritesViewModel.clearAllFavourites()
+                    Toast.makeText(context, "Favourites cleared", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("Clear", color = Color(0xFFF472B6))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("Cancel", color = Color.White.copy(alpha = 0.5f))
+                }
+            }
+        )
+    }
+}
+
+// --- NOTIFICATIONS SCREEN ---
+
+@Composable
+fun NotificationScreen(navController: NavController) {
+    val context = LocalContext.current
+    var reminderEnabled by remember { mutableStateOf(false) }
+    var reminderHour by remember { mutableIntStateOf(20) }
+    var reminderMinute by remember { mutableIntStateOf(0) }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            scheduleReminder(context, reminderHour, reminderMinute)
+            reminderEnabled = true
+        } else {
+            Toast.makeText(context, "Permission needed for notifications", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+            .padding(top = 52.dp, bottom = 24.dp)
+    ) {
+        // Top bar
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White.copy(alpha = 0.7f)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Notifications",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                color = Color.White
+            )
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        // Illustration
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .align(Alignment.CenterHorizontally)
+                .clip(CircleShape)
+                .background(Color(0x20A855F7)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Notifications,
+                contentDescription = null,
+                tint = Color(0xFFA855F7),
+                modifier = Modifier.size(56.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Text(
+            text = "DAILY MOOD REMINDER",
+            fontFamily = SyneFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.35f),
+            letterSpacing = 1.2.sp
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF13131F))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0x20A855F7)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Default.Notifications,
+                            null,
+                            tint = Color(0xFFA855F7),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Daily Reminder", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Get reminded to pick your mood",
+                            color = Color.White.copy(alpha = 0.35f),
+                            fontSize = 11.sp
+                        )
+                    }
+                    Switch(
+                        checked = reminderEnabled,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    scheduleReminder(context, reminderHour, reminderMinute)
+                                    reminderEnabled = true
+                                }
+                            } else {
+                                cancelReminder(context)
+                                reminderEnabled = false
+                            }
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFFA855F7),
+                            uncheckedThumbColor = Color.White.copy(alpha = 0.7f),
+                            uncheckedTrackColor = Color.White.copy(alpha = 0.1f)
+                        )
+                    )
+                }
+
+                if (reminderEnabled) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                TimePickerDialog(
+                                    context,
+                                    { _, h, m ->
+                                        reminderHour = h
+                                        reminderMinute = m
+                                        scheduleReminder(context, h, m)
+                                    },
+                                    reminderHour,
+                                    reminderMinute,
+                                    false
+                                ).show()
+                            }
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Remind me at", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                        Text(
+                            text = formatTime12(reminderHour, reminderMinute),
+                            color = Color(0xFFC084FC),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = SyneFontFamily
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatTime12(hour: Int, minute: Int): String {
+    val amPm = if (hour < 12) "AM" else "PM"
+    val displayHour = when {
+        hour == 0 -> 12
+        hour > 12 -> hour - 12
+        else -> hour
+    }
+    return String.format(Locale.ROOT, "%d:%02d %s", displayHour, minute, amPm)
+}
+
+fun scheduleReminder(context: Context, hour: Int = 20, minute: Int = 0) {
+    val workManager = WorkManager.getInstance(context)
+
+    val now = Calendar.getInstance()
+    val target = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, hour)
+        set(Calendar.MINUTE, minute)
+        set(Calendar.SECOND, 0)
+        if (before(now)) add(Calendar.DAY_OF_YEAR, 1)
+    }
+    val delay = target.timeInMillis - now.timeInMillis
+
+    val request = OneTimeWorkRequestBuilder<MoodReminderWorker>()
+        .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+        .addTag("mood_reminder")
+        .build()
+
+    workManager.enqueueUniqueWork(
+        "mood_reminder",
+        ExistingWorkPolicy.REPLACE,
+        request
+    )
+
+    Toast.makeText(
+        context,
+        "Reminder set for ${String.format(Locale.ROOT, "%02d:%02d", hour, minute)}",
+        Toast.LENGTH_SHORT
+    ).show()
+}
+
+fun cancelReminder(context: Context) {
+    WorkManager.getInstance(context).cancelAllWorkByTag("mood_reminder")
+    Toast.makeText(context, "Reminder cancelled", Toast.LENGTH_SHORT).show()
+}
+
+// --- ABOUT SCREEN ---
+
+@Composable
+fun AboutScreen(navController: NavController) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0C0C18))
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 8.dp)
+    ) {
+        // 1. Top bar
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 48.dp, bottom = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            IconButton(
+                onClick = { navController.popBackStack() },
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White.copy(alpha = 0.7f)
+                )
+            }
+            Text(
+                text = "About Arbitify",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = Color.White
+            )
+        }
+
+        // 2. Hero
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(90.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(brush = Brush.linearGradient(listOf(BrandPurple, BrandPink))),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(44.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = "Arbitify",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 26.sp,
+                color = Color.White
+            )
+            Text(
+                text = "Version 1.0.0",
+                fontFamily = DmSansFontFamily,
+                fontSize = 13.sp,
+                color = Color(0x47FFFFFF)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(Color(0xFFFBBF24), Color(0xFFA855F7), Color(0xFFF472B6)).forEach { dot ->
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(dot)
+                    )
+                }
+            }
+        }
+
+        // 3. Gen-Z intro card
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 20.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.dp, Color(0x40A855F7), RoundedCornerShape(16.dp))
+                .height(IntrinsicSize.Min)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .background(brush = Brush.linearGradient(listOf(BrandPurple, BrandPink)))
+            )
+            Column(modifier = Modifier.padding(18.dp)) {
+                Text(
+                    text = "NO CAP, WE ACTUALLY BUILT THIS",
+                    fontFamily = SyneFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    color = Color(0xFFA855F7),
+                    letterSpacing = 1.1.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "two gen-z girlies, one shared music addiction, and a whole lot of late night coding sessions. Arbitify was born because we were too indecisive about what to play — so we let the vibe decide.",
+                    fontFamily = DmSansFontFamily,
+                    fontSize = 14.sp,
+                    color = Color(0x99FFFFFF),
+                    lineHeight = 22.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "built different. literally.",
+                    fontFamily = DmSansFontFamily,
+                    fontSize = 13.sp,
+                    color = Color(0x47FFFFFF),
+                    fontStyle = FontStyle.Italic
+                )
+            }
+        }
+
+        // 4. Tagline card
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 14.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF13131F))
+                .padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Feel the right beat.",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = Color.White,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Arbitify is a mood-based music app that curates the perfect playlist for how you're feeling right now. Whether you're happy, sad, chill, romantic, or fired up — we've got the soundtrack for every emotion.",
+                fontFamily = DmSansFontFamily,
+                fontSize = 14.sp,
+                color = Color(0x99FFFFFF),
+                textAlign = TextAlign.Center,
+                lineHeight = 22.sp
+            )
+        }
+
+        // 5. Name origin card
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 14.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF13131F))
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color(0xFFFBBF24),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Why Arbitify?",
+                    fontFamily = SyneFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = Color.White
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = Color(0x99FFFFFF), fontFamily = DmSansFontFamily)) {
+                        append("The name is a mix of ")
+                    }
+                    withStyle(SpanStyle(color = Color(0xFFA855F7), fontFamily = SyneFontFamily, fontWeight = FontWeight.Bold)) {
+                        append("\"Ar\"")
+                    }
+                    withStyle(SpanStyle(color = Color(0x99FFFFFF), fontFamily = DmSansFontFamily)) {
+                        append(" from Areeba and ")
+                    }
+                    withStyle(SpanStyle(color = Color(0xFFF472B6), fontFamily = SyneFontFamily, fontWeight = FontWeight.Bold)) {
+                        append("\"Bi\"")
+                    }
+                    withStyle(SpanStyle(color = Color(0x99FFFFFF), fontFamily = DmSansFontFamily)) {
+                        append(" from Biya — two names, one app.")
+                    }
+                },
+                fontSize = 13.sp,
+                lineHeight = 20.sp
+            )
+        }
+
+        // 6. Info cards
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AboutInfoCard(
+                icon = Icons.Outlined.MusicNote,
+                iconColor = Color(0xFFA855F7),
+                title = "5 Moods",
+                subtitle = "Happy, Sad, Angry\nChill, Romantic",
+                modifier = Modifier.weight(1f)
+            )
+            AboutInfoCard(
+                icon = Icons.Outlined.LibraryMusic,
+                iconColor = Color(0xFFF472B6),
+                title = "Powered by",
+                subtitle = "Jamendo Music\nAPI",
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // 7. Features list
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 20.dp)
+        ) {
+            Text(
+                text = "FEATURES",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.35f),
+                letterSpacing = 1.2.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            AboutFeatureRow(Icons.Outlined.SentimentSatisfied, Color(0xFFFBBF24), "Mood Detection", "Pick your emotion, we pick your music", showDivider = true)
+            AboutFeatureRow(Icons.Outlined.MusicNote, Color(0xFFA855F7), "Smart Playlists", "Curated tracks for every mood", showDivider = true)
+            AboutFeatureRow(Icons.Outlined.FavoriteBorder, Color(0xFFF472B6), "Favourites", "Save songs you love", showDivider = true)
+            AboutFeatureRow(Icons.Outlined.Notifications, Color(0xFF34D399), "Mood Reminders", "Daily notifications to set your vibe", showDivider = false)
+        }
+
+        // 8. Team section
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 20.dp)
+        ) {
+            Text(
+                text = "THE MASTERMINDS",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.35f),
+                letterSpacing = 1.2.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF13131F))
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "two brain-rotted gen-z devs who somehow shipped an app",
+                    fontFamily = DmSansFontFamily,
+                    fontSize = 12.sp,
+                    color = Color(0x47FFFFFF),
+                    textAlign = TextAlign.Center,
+                    fontStyle = FontStyle.Italic,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 14.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                HorizontalDivider(color = Color(0x0AFFFFFF))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                AboutTeamMember(
+                    initials = "BA",
+                    avatarColors = listOf(Color(0xFFF472B6), Color(0xFFDB2777)),
+                    name = "Biya Anjum",
+                    role = "Co-founder & Android Developer",
+                    pillText = "the Bi in Arbitify",
+                    pillColor = Color(0xFFF472B6)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = Color(0x0AFFFFFF))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                AboutTeamMember(
+                    initials = "AA",
+                    avatarColors = listOf(Color(0xFF9333EA), Color(0xFFA855F7)),
+                    name = "Areeba Abid",
+                    role = "Co-founder & Android Developer",
+                    pillText = "the Ar in Arbitify",
+                    pillColor = Color(0xFFA855F7)
+                )
+            }
+        }
+
+        // 9. Fun footer
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp, bottom = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = Color(0x47FFFFFF))) { append("made with ") }
+                    withStyle(SpanStyle(color = Color(0xFFFBBF24))) { append("too much chai") }
+                    withStyle(SpanStyle(color = Color(0x47FFFFFF))) { append(" and sleep deprivation") }
+                },
+                fontFamily = DmSansFontFamily,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "© 2026 Arbitify. All rights reserved.",
+                fontFamily = DmSansFontFamily,
+                fontSize = 11.sp,
+                color = Color(0x28FFFFFF),
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutInfoCard(
+    icon: ImageVector,
+    iconColor: Color,
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFF13131F))
+            .padding(16.dp)
+    ) {
+        Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(24.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = title,
+            fontFamily = SyneFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            color = Color.White
+        )
+        Text(
+            text = subtitle,
+            fontFamily = DmSansFontFamily,
+            fontSize = 11.sp,
+            color = Color(0x59FFFFFF),
+            lineHeight = 16.sp
+        )
+    }
+}
+
+@Composable
+private fun AboutFeatureRow(
+    icon: ImageVector,
+    iconColor: Color,
+    title: String,
+    subtitle: String,
+    showDivider: Boolean
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(iconColor.copy(alpha = 0.08f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = iconColor, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = SyneFontFamily)
+                Text(subtitle, color = Color.White.copy(alpha = 0.35f), fontSize = 11.sp, fontFamily = DmSansFontFamily)
+            }
+        }
+        if (showDivider) {
+            HorizontalDivider(color = Color(0x0EFFFFFF))
+        }
+    }
+}
+
+@Composable
+private fun AboutTeamMember(
+    initials: String,
+    avatarColors: List<Color>,
+    name: String,
+    role: String,
+    pillText: String,
+    pillColor: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(brush = Brush.linearGradient(avatarColors)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = initials,
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = Color.White
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold, fontFamily = SyneFontFamily)
+            Text(role, color = Color(0x59FFFFFF), fontSize = 11.sp, fontFamily = DmSansFontFamily)
+            Spacer(modifier = Modifier.height(4.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(100.dp))
+                    .background(pillColor.copy(alpha = 0.08f))
+                    .border(1.dp, pillColor.copy(alpha = 0.19f), RoundedCornerShape(100.dp))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(pillText, color = pillColor, fontSize = 10.sp, fontFamily = DmSansFontFamily)
+            }
+        }
     }
 }
 

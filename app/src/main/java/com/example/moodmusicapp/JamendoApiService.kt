@@ -9,6 +9,7 @@ interface JamendoApiService {
     suspend fun searchTracks(
         @Query("client_id") clientId: String,
         @Query("tags") tags: String,
+        @Query("namesearch") nameSearch: String = "",
         @Query("format") format: String = "json",
         @Query("limit") limit: Int = 10,
         @Query("include") include: String = "musicinfo",

@@ -81,6 +81,53 @@ class AuthViewModel : ViewModel() {
         _currentUserName.value = "User"
         _authState.value = AuthState.Unauthenticated
     }
+
+    fun updateDisplayName(newName: String) {
+        _authState.value = AuthState.Loading
+        val user = auth.currentUser
+        val profileUpdates = UserProfileChangeRequest.Builder()
+            .setDisplayName(newName)
+            .build()
+        user?.updateProfile(profileUpdates)
+            ?.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    _currentUserName.value = newName
+                    _authState.value = AuthState.Authenticated
+                } else {
+                    _authState.value = AuthState.Error(
+                        task.exception?.message ?: "Update failed"
+                    )
+                }
+            }
+    }
+
+    fun sendPasswordReset() {
+        val email = auth.currentUser?.email ?: return
+        auth.sendPasswordResetEmail(email)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    _authState.value = AuthState.Error("Reset link sent to $email")
+                } else {
+                    _authState.value = AuthState.Error(
+                        task.exception?.message ?: "Failed to send reset email"
+                    )
+                }
+            }
+    }
+
+    fun deleteAccount() {
+        _authState.value = AuthState.Loading
+        auth.currentUser?.delete()
+            ?.addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    _authState.value = AuthState.Unauthenticated
+                } else {
+                    _authState.value = AuthState.Error(
+                        task.exception?.message ?: "Delete failed"
+                    )
+                }
+            }
+    }
 }
 
 sealed class AuthState {

@@ -36,6 +36,22 @@ class JamendoViewModel : ViewModel() {
         }
     }
 
+    fun searchTracks(query: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val response = JamendoRepository().searchByQuery(query)
+                Log.d("JAMENDO", "Search results: ${response.size}")
+                _tracks.value = response
+            } catch (e: Exception) {
+                Log.e("JAMENDO", "Search error: ${e.message}")
+                _error.value = e.message
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
     class Factory : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {

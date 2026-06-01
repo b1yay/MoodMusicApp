@@ -1,10 +1,13 @@
 package com.example.moodmusicapp
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.UserProfileChangeRequest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class AuthViewModel : ViewModel() {
 
@@ -77,9 +80,13 @@ class AuthViewModel : ViewModel() {
     }
 
     fun signOut() {
-        auth.signOut()
-        _currentUserName.value = "User"
-        _authState.value = AuthState.Unauthenticated
+        viewModelScope.launch {
+            _authState.value = AuthState.LoggingOut
+            delay(1500)
+            auth.signOut()
+            _currentUserName.value = "User"
+            _authState.value = AuthState.Unauthenticated
+        }
     }
 
     fun updateDisplayName(newName: String) {
@@ -134,5 +141,6 @@ sealed class AuthState {
     data object Loading : AuthState()
     data object Authenticated : AuthState()
     data object Unauthenticated : AuthState()
+    data object LoggingOut : AuthState()
     data class Error(val message: String) : AuthState()
 }

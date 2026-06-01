@@ -477,7 +477,7 @@ fun SignInScreen(navController: NavController, authViewModel: AuthViewModel) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+          /*  Spacer(modifier = Modifier.height(24.dp))
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -507,7 +507,7 @@ fun SignInScreen(navController: NavController, authViewModel: AuthViewModel) {
             ) {
                 SocialButton(text = "Google", modifier = Modifier.weight(1f))
                 SocialButton(text = "Apple", modifier = Modifier.weight(1f))
-            }
+            }*/
 
             Spacer(modifier = Modifier.height(20.dp))
 

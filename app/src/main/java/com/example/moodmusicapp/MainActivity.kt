@@ -5,17 +5,20 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -24,9 +27,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.moodmusicapp.ui.*
-import com.example.moodmusicapp.ui.theme.AppBackground
-import com.example.moodmusicapp.ui.theme.ArbitifyTheme
-import com.example.moodmusicapp.ui.theme.BrandPurple
+import com.example.moodmusicapp.ui.theme.*
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,7 +54,16 @@ fun MainScreen() {
     val showBottomBar = currentRoute != Screen.Login.route && 
                        currentRoute != Screen.SignUp.route && 
                        currentRoute != Screen.NowPlaying.route && 
-                       authState is AuthState.Authenticated
+                       (authState is AuthState.Authenticated || authState is AuthState.LoggingOut)
+
+    // Handle global navigation based on AuthState
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Unauthenticated && currentRoute != Screen.Login.route && currentRoute != Screen.SignUp.route) {
+            navController.navigate(Screen.Login.route) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
 
     if (authState is AuthState.Loading) {
         Box(
@@ -67,7 +77,7 @@ fun MainScreen() {
         return
     }
 
-    val startDestination = if (authState is AuthState.Authenticated) Screen.Home.route else Screen.Login.route
+    val startDestination = if (authState is AuthState.Authenticated || authState is AuthState.LoggingOut) Screen.Home.route else Screen.Login.route
 
     Scaffold(
         bottomBar = {
@@ -111,9 +121,6 @@ fun MainScreen() {
                     favouritesViewModel = favouritesViewModel,
                     onLogout = {
                         authViewModel.signOut()
-                        navController.navigate(Screen.Login.route) {
-                            popUpTo(0) { inclusive = true }
-                        }
                     },
                     onMoodClick = { mood ->
                         navController.navigate(Screen.Playlist.createRoute(mood))
@@ -184,6 +191,36 @@ fun MainScreen() {
             }
             composable(route = "about") {
                 AboutScreen(navController = navController)
+            }
+        }
+    }
+
+    if (authState is AuthState.LoggingOut) {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = CardSurface,
+                tonalElevation = 8.dp,
+                modifier = Modifier.width(200.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        color = BrandPurple,
+                        modifier = Modifier.size(36.dp),
+                        strokeWidth = 3.dp
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        text = "Logging out...",
+                        color = Color.White,
+                        fontFamily = SyneFontFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }

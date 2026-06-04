@@ -24,6 +24,8 @@ class FavouritesViewModel : ViewModel() {
     private val _moodsUsed = MutableStateFlow(0)
     val moodsUsed = _moodsUsed.asStateFlow()
 
+    private var lastLocalUpdate = 0L
+
     init {
         loadFavourites()
         observeStats()
@@ -61,21 +63,44 @@ class FavouritesViewModel : ViewModel() {
             }
         }
         FavouritesRepository.observeFavourites { songs ->
-            _favourites.value = songs
-            _count.value = songs.size
+            val timeSinceLocal = System.currentTimeMillis() - lastLocalUpdate
+            if (timeSinceLocal > 2000) {
+                _favourites.value = songs
+                _count.value = songs.size
+            }
         }
     }
 
     fun toggleFavourite(song: Song) {
+        lastLocalUpdate = System.currentTimeMillis()
+        val currentList = _favourites.value.toMutableList()
+        val isCurrentlyFavourite = currentList.any { it.id == song.id }
+
+        // Optimistic update — update UI immediately
+        if (isCurrentlyFavourite) {
+            _favourites.value = currentList.filter { it.id != song.id }
+        } else {
+            _favourites.value = currentList + song
+        }
+        _count.value = _favourites.value.size
+
+        // Then sync with Firestore in background
         viewModelScope.launch {
             try {
-                if (FavouritesRepository.isFavourite(song.id)) {
+                if (isCurrentlyFavourite) {
                     FavouritesRepository.removeFavourite(song.id)
                 } else {
                     FavouritesRepository.addFavourite(song)
                 }
             } catch (e: Exception) {
-                Log.e("FAVOURITES", "Toggle error: ${e.message}")
+                // Revert on failure
+                Log.e("FAVOURITES", "Toggle failed, reverting: ${e.message}")
+                _favourites.value = if (isCurrentlyFavourite) {
+                    currentList + song
+                } else {
+                    currentList.filter { it.id != song.id }
+                }
+                _count.value = _favourites.value.size
             }
         }
     }

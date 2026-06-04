@@ -73,15 +73,21 @@ import com.example.moodmusicapp.AuthViewModel
 import com.example.moodmusicapp.FavouritesRepository
 import com.example.moodmusicapp.FavouritesViewModel
 import com.example.moodmusicapp.JamendoViewModel
+import com.example.moodmusicapp.LyricsRepository
 import com.example.moodmusicapp.MediaManager
 import com.example.moodmusicapp.MoodReminderWorker
 import com.example.moodmusicapp.MusicPlayer
+import com.example.moodmusicapp.PlaylistViewModel
 import com.example.moodmusicapp.Song
+import com.example.moodmusicapp.UserPlaylist
 import com.example.moodmusicapp.SongRepository
 import com.example.moodmusicapp.YouTubePlayer
 import com.example.moodmusicapp.ui.theme.*
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -152,6 +158,7 @@ fun SongRow(
     isLoading: Boolean = false,
     isNew: Boolean = false,
     isFavourite: Boolean = song.isFavorite,
+    onAddToPlaylist: (() -> Unit)? = null,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit
 ) {
@@ -299,6 +306,20 @@ fun SongRow(
                 color = if (isPlaying && showNumber) BrandPurple else Color.White.copy(alpha = 0.24f)
             )
             Spacer(modifier = Modifier.width(12.dp))
+            if (onAddToPlaylist != null) {
+                IconButton(
+                    onClick = { onAddToPlaylist() },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.PlaylistAdd,
+                        contentDescription = "Add to playlist",
+                        tint = Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            }
             IconButton(
                 onClick = { onFavoriteToggle() },
                 modifier = Modifier.size(24.dp)
@@ -1353,13 +1374,15 @@ fun DiscoverScreen(
 fun ProfileScreen(
     navController: NavController,
     authViewModel: AuthViewModel,
-    favouritesViewModel: FavouritesViewModel
+    favouritesViewModel: FavouritesViewModel,
+    playlistViewModel: PlaylistViewModel
 ) {
     val userName by authViewModel.currentUserName.collectAsState()
     val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: ""
     val songsPlayed by favouritesViewModel.songsPlayed.collectAsState()
     val favCount by favouritesViewModel.count.collectAsState()
     val moodsUsed by favouritesViewModel.moodsUsed.collectAsState()
+    val playlists by playlistViewModel.playlists.collectAsState()
     
     val initials = remember(userName) {
         userName.split(" ")
@@ -1505,6 +1528,28 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
+                text = "LIBRARY",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.35f),
+                letterSpacing = 1.2.sp
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            SettingsRow(
+                icon = Icons.Outlined.LibraryMusic,
+                title = "My Playlists",
+                subtitle = "${playlists.size} playlists",
+                iconColor = Color(0xFFA855F7)
+            ) {
+                navController.navigate("myplaylists")
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
                 text = "SETTINGS",
                 fontFamily = SyneFontFamily,
                 fontWeight = FontWeight.Bold,
@@ -1529,8 +1574,11 @@ fun ProfileScreen(
 
             Button(
                 onClick = {
+                    MediaManager.stop()
+                    YouTubePlayer.stop()
+                    MusicPlayer.stop()
                     authViewModel.signOut()
-                    navController.navigate(Screen.Login.route) {
+                    navController.navigate("login") {
                         popUpTo(0) { inclusive = true }
                     }
                 },
@@ -1635,11 +1683,14 @@ fun SettingsRow(
 @Composable
 fun FavouritesScreen(
     favouritesViewModel: FavouritesViewModel,
+    playlistViewModel: PlaylistViewModel,
     onNavigateToNowPlaying: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val songs by favouritesViewModel.favourites.collectAsState()
     val isLoading by favouritesViewModel.isLoading.collectAsState()
+    val playlists by playlistViewModel.playlists.collectAsState()
+    var playlistSheetSong by remember { mutableStateOf<Song?>(null) }
 
     Column(
         modifier = Modifier
@@ -1688,6 +1739,7 @@ fun FavouritesScreen(
                             index = index,
                             totalCount = songs.size,
                             isFavourite = true,
+                            onAddToPlaylist = { playlistSheetSong = song },
                             onClick = {
                                 if (song.imageUrl != null) {
                                     MediaManager.playYouTube(context, song)
@@ -1707,6 +1759,22 @@ fun FavouritesScreen(
             }
         }
     }
+
+    playlistSheetSong?.let { sheetSong ->
+        AddToPlaylistSheet(
+            song = sheetSong,
+            playlists = playlists,
+            onDismiss = { playlistSheetSong = null },
+            onAddToExisting = { playlistId ->
+                playlistViewModel.addSongToPlaylist(playlistId, sheetSong)
+                Toast.makeText(context, "Added to playlist", Toast.LENGTH_SHORT).show()
+            },
+            onCreateNew = { name ->
+                playlistViewModel.createPlaylist(name)
+                Toast.makeText(context, "Playlist '$name' created!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 }
 
 // --- PLAYLIST SCREEN ---
@@ -1717,7 +1785,8 @@ fun PlaylistScreen(
     onBack: () -> Unit = {},
     onNavigateToNowPlaying: () -> Unit = {},
     jamendoViewModel: JamendoViewModel,
-    favouritesViewModel: FavouritesViewModel
+    favouritesViewModel: FavouritesViewModel,
+    playlistViewModel: PlaylistViewModel
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -1728,6 +1797,9 @@ fun PlaylistScreen(
 
     val favourites by favouritesViewModel.favourites.collectAsState()
     val favouriteIds = remember(favourites) { favourites.map { it.id }.toSet() }
+
+    val playlists by playlistViewModel.playlists.collectAsState()
+    var playlistSheetSong by remember { mutableStateOf<Song?>(null) }
 
     val currentSong by MediaManager.currentSongState.collectAsState()
     val isBuffering by MediaManager.isBuffering.collectAsState()
@@ -1764,13 +1836,30 @@ fun PlaylistScreen(
         }
     }
 
-    val moodColor = when (moodName.lowercase(Locale.ROOT)) {
-        "happy" -> MoodYellow
-        "romantic" -> MoodPink
-        "sad" -> MoodBlue
-        "chill" -> MoodTeal
-        "angry" -> MoodRed
-        else -> BrandPurple
+    val moodKey = moodName.lowercase(Locale.ROOT)
+    val moodColor = when (moodKey) {
+        "happy" -> Color(0xFFFBBF24)
+        "sad" -> Color(0xFF60A5FA)
+        "angry" -> Color(0xFFF87171)
+        "chill" -> Color(0xFF34D399)
+        "romantic" -> Color(0xFFF472B6)
+        else -> Color(0xFFA855F7)
+    }
+    val moodIcon = when (moodKey) {
+        "happy" -> Icons.Outlined.WbSunny
+        "sad" -> Icons.Outlined.WaterDrop
+        "angry" -> Icons.Outlined.FlashOn
+        "chill" -> Icons.Outlined.Eco
+        "romantic" -> Icons.Outlined.Favorite
+        else -> Icons.Outlined.MusicNote
+    }
+    val moodSubtitle = when (moodKey) {
+        "happy" -> "upbeat & bright"
+        "sad" -> "mellow & deep"
+        "angry" -> "raw & intense"
+        "chill" -> "lo-fi & easy"
+        "romantic" -> "soulful & tender"
+        else -> "feel the beat"
     }
 
     Column(
@@ -1781,30 +1870,15 @@ fun PlaylistScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(185.dp)
+                .height(200.dp)
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(moodColor.copy(alpha = 0.22f), AppBackground),
+                        colors = listOf(moodColor.copy(alpha = 0.25f), AppBackground),
                         center = center,
-                        radius = size.width / 1.5f
+                        radius = size.width / 1.4f
                     )
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .size(100.dp)
-                    .align(Alignment.Center)
-                    .background(Color(0xFF1E1A2E), RoundedCornerShape(22.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(22.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = moodColor.copy(alpha = 0.6f),
-                    modifier = Modifier.size(42.dp)
                 )
             }
             Box(
@@ -1813,10 +1887,46 @@ fun PlaylistScreen(
                     .background(
                         Brush.verticalGradient(
                             listOf(Color.Transparent, AppBackground),
-                            startY = with(density) { 185.dp.toPx() } * 0.2f
+                            startY = with(density) { 200.dp.toPx() } * 0.55f
                         )
                     )
             )
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape)
+                        .background(moodColor.copy(alpha = 0.15f))
+                        .border(1.dp, moodColor.copy(alpha = 0.40f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = moodIcon,
+                        contentDescription = null,
+                        tint = moodColor,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = moodName.uppercase(Locale.ROOT),
+                    fontFamily = SyneFontFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 28.sp,
+                    color = Color.White,
+                    letterSpacing = 1.4.sp
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = moodSubtitle,
+                    fontFamily = DmSansFontFamily,
+                    fontSize = 13.sp,
+                    color = Color(0x59FFFFFF)
+                )
+            }
             IconButton(
                 onClick = onBack,
                 modifier = Modifier
@@ -1932,6 +2042,7 @@ fun PlaylistScreen(
                         showNumber = true,
                         isLoading = isThisSongBuffering,
                         isFavourite = favouriteIds.contains(song.id),
+                        onAddToPlaylist = { playlistSheetSong = song },
                         onClick = {
                             Log.d("PLAY_DEBUG", "Click: ${song.title}")
                             val audioUrl = audioUrls[song.id]
@@ -1956,6 +2067,22 @@ fun PlaylistScreen(
             }
         }
     }
+
+    playlistSheetSong?.let { sheetSong ->
+        AddToPlaylistSheet(
+            song = sheetSong,
+            playlists = playlists,
+            onDismiss = { playlistSheetSong = null },
+            onAddToExisting = { playlistId ->
+                playlistViewModel.addSongToPlaylist(playlistId, sheetSong)
+                Toast.makeText(context, "Added to playlist", Toast.LENGTH_SHORT).show()
+            },
+            onCreateNew = { name ->
+                playlistViewModel.createPlaylist(name)
+                Toast.makeText(context, "Playlist '$name' created!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 }
 
 // --- NOW PLAYING SCREEN ---
@@ -1964,10 +2091,13 @@ fun PlaylistScreen(
 @Composable
 fun NowPlayingScreen(
     favouritesViewModel: FavouritesViewModel,
+    playlistViewModel: PlaylistViewModel,
     onBack: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val currentSong by MediaManager.currentSongState.collectAsState()
+    var showPlaylistSheet by remember { mutableStateOf(false) }
+    val playlists by playlistViewModel.playlists.collectAsState()
     val isPlaying by MediaManager.isPlaying.collectAsState()
     val isBuffering by MediaManager.isBuffering.collectAsState()
     val playerType by MediaManager.currentPlayerType.collectAsState()
@@ -1980,8 +2110,32 @@ fun NowPlayingScreen(
     var duration by remember { mutableLongStateOf(0L) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     
-    var lyricsOpen by remember { mutableStateOf(false) }
-    val sheetState = rememberModalBottomSheetState()
+    var lyricsText by remember { mutableStateOf<String?>(null) }
+    var isLoadingLyrics by remember { mutableStateOf(false) }
+    var showLyricsSheet by remember { mutableStateOf(false) }
+    val lyricsScope = rememberCoroutineScope()
+
+    val onLyricsClick = {
+        showLyricsSheet = true
+        if (lyricsText == null && !isLoadingLyrics) {
+            isLoadingLyrics = true
+            lyricsScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    LyricsRepository.getLyrics(
+                        currentSong?.artist ?: "",
+                        currentSong?.title ?: ""
+                    )
+                }
+                lyricsText = result
+                isLoadingLyrics = false
+            }
+        }
+    }
+
+    LaunchedEffect(currentSong?.id) {
+        lyricsText = null
+        isLoadingLyrics = false
+    }
 
     LaunchedEffect(currentSong) {
         val song = currentSong
@@ -2143,8 +2297,38 @@ fun NowPlayingScreen(
                     }
                 }
             )
-            ActionItem(Icons.Outlined.Share, "Share")
-            ActionItem(Icons.AutoMirrored.Outlined.Article, "Lyrics", onClick = { lyricsOpen = true })
+            ActionItem(
+                icon = Icons.Outlined.PlaylistAdd,
+                label = "Playlist",
+                onClick = { showPlaylistSheet = true }
+            )
+            ActionItem(
+                icon = Icons.Outlined.Share,
+                label = "Share",
+                onClick = {
+                    val song = MediaManager.currentSongState.value
+                    if (song != null) {
+                        val shareText = """
+                            🎵 Now listening to "${song.title}" by ${song.artist}
+
+                            Vibe: ${song.mood} mood
+
+                            Discover mood-based music on Arbitify!
+                        """.trimIndent()
+
+                        val sendIntent = android.content.Intent().apply {
+                            action = android.content.Intent.ACTION_SEND
+                            putExtra(android.content.Intent.EXTRA_TEXT, shareText)
+                            type = "text/plain"
+                        }
+                        val shareIntent = android.content.Intent.createChooser(
+                            sendIntent, "Share this song via"
+                        )
+                        context.startActivity(shareIntent)
+                    }
+                }
+            )
+            ActionItem(Icons.AutoMirrored.Outlined.Article, "Lyrics", onClick = { onLyricsClick() })
             ActionItem(Icons.Outlined.MoreVert, "More")
         }
 
@@ -2232,7 +2416,7 @@ fun NowPlayingScreen(
         Spacer(modifier = Modifier.height(26.dp))
 
         OutlinedButton(
-            onClick = { lyricsOpen = true },
+            onClick = { onLyricsClick() },
             modifier = Modifier
                 .fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
@@ -2253,25 +2437,119 @@ fun NowPlayingScreen(
         }
     }
 
-    if (lyricsOpen) {
-        ModalBottomSheet(
-            onDismissRequest = { lyricsOpen = false },
-            sheetState = sheetState,
-            containerColor = Color(0xFF13131F),
-            dragHandle = { BottomSheetDefaults.DragHandle() }
+    if (showLyricsSheet) {
+        LyricsBottomSheet(
+            song = currentSong,
+            lyrics = lyricsText,
+            isLoading = isLoadingLyrics,
+            onDismiss = { showLyricsSheet = false }
+        )
+    }
+
+    if (showPlaylistSheet && currentSong != null) {
+        AddToPlaylistSheet(
+            song = currentSong!!,
+            playlists = playlists,
+            onDismiss = { showPlaylistSheet = false },
+            onAddToExisting = { playlistId ->
+                playlistViewModel.addSongToPlaylist(playlistId, currentSong!!)
+                Toast.makeText(context, "Added to playlist", Toast.LENGTH_SHORT).show()
+            },
+            onCreateNew = { name ->
+                playlistViewModel.createPlaylist(name)
+                Toast.makeText(context, "Playlist '$name' created!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LyricsBottomSheet(
+    song: Song?,
+    lyrics: String?,
+    isLoading: Boolean,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF13131F)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp)
         ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
-            ) {
-                item {
+            Text(
+                song?.title ?: "",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = Color.White
+            )
+            Text(
+                song?.artist ?: "",
+                fontFamily = DmSansFontFamily,
+                fontSize = 13.sp,
+                color = Color(0x99FFFFFF)
+            )
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = Color(0x0EFFFFFF))
+            Spacer(Modifier.height(16.dp))
+
+            when {
+                isLoading -> Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(color = Color(0xFFA855F7))
+                    Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "Lyrics implementation depends on metadata...\n\nSample line 1\nSample line 2\n...",
-                        color = Color.White,
-                        fontSize = 15.sp,
+                        "Finding lyrics...",
                         fontFamily = DmSansFontFamily,
-                        lineHeight = 27.sp
+                        fontSize = 13.sp,
+                        color = Color(0x47FFFFFF)
+                    )
+                }
+
+                lyrics != null -> Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        lyrics,
+                        fontFamily = DmSansFontFamily,
+                        fontSize = 15.sp,
+                        color = Color(0x99FFFFFF),
+                        lineHeight = 24.sp
+                    )
+                }
+
+                else -> Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Outlined.MusicOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = Color(0x20FFFFFF)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Lyrics not available",
+                        fontFamily = SyneFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color(0x47FFFFFF)
+                    )
+                    Text(
+                        "for this song",
+                        fontFamily = DmSansFontFamily,
+                        fontSize = 13.sp,
+                        color = Color(0x28FFFFFF)
                     )
                 }
             }
@@ -3486,6 +3764,452 @@ private fun AboutTeamMember(
                     .padding(horizontal = 8.dp, vertical = 3.dp)
             ) {
                 Text(pillText, color = pillColor, fontSize = 10.sp, fontFamily = DmSansFontFamily)
+            }
+        }
+    }
+}
+
+// --- ADD TO PLAYLIST SHEET ---
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddToPlaylistSheet(
+    song: Song,
+    playlists: List<UserPlaylist>,
+    onDismiss: () -> Unit,
+    onAddToExisting: (String) -> Unit,
+    onCreateNew: (String) -> Unit
+) {
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF13131F)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                "Add to Playlist",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = Color.White,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showCreateDialog = true }
+                    .padding(vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(Color(0xFFA855F7).copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.Add, null, tint = Color(0xFFA855F7))
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "Create new playlist",
+                    fontFamily = SyneFontFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    color = Color(0xFFC084FC)
+                )
+            }
+
+            HorizontalDivider(
+                color = Color(0x0EFFFFFF),
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            if (playlists.isEmpty()) {
+                Text(
+                    "No playlists yet",
+                    fontFamily = DmSansFontFamily,
+                    fontSize = 13.sp,
+                    color = Color(0x47FFFFFF),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    textAlign = TextAlign.Center
+                )
+            } else {
+                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    itemsIndexed(playlists) { _, playlist ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onAddToExisting(playlist.id)
+                                    onDismiss()
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(Color(0xFF9333EA).copy(alpha = 0.08f), RoundedCornerShape(10.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.QueueMusic, null, tint = Color(0xFF9333EA))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    playlist.name,
+                                    fontFamily = SyneFontFamily,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp,
+                                    color = Color.White
+                                )
+                                Text(
+                                    "${playlist.songCount} songs",
+                                    fontFamily = DmSansFontFamily,
+                                    fontSize = 11.sp,
+                                    color = Color(0x47FFFFFF)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCreateDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            containerColor = Color(0xFF13131F),
+            title = {
+                Text("New Playlist", fontFamily = SyneFontFamily, fontWeight = FontWeight.Bold, color = Color.White)
+            },
+            text = {
+                OutlinedTextField(
+                    value = newPlaylistName,
+                    onValueChange = { newPlaylistName = it },
+                    placeholder = { Text("Playlist name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newPlaylistName.isNotBlank()) {
+                        onCreateNew(newPlaylistName)
+                        onDismiss()
+                    }
+                }) {
+                    Text("Create", color = Color(0xFFC084FC))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) {
+                    Text("Cancel", color = Color(0x47FFFFFF))
+                }
+            }
+        )
+    }
+}
+
+// --- MY PLAYLISTS SCREEN ---
+
+@Composable
+fun MyPlaylistsScreen(
+    navController: NavController,
+    playlistViewModel: PlaylistViewModel,
+    favouritesViewModel: FavouritesViewModel
+) {
+    val playlists by playlistViewModel.playlists.collectAsState()
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<UserPlaylist?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 52.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color(0x99FFFFFF)
+                )
+            }
+            Text(
+                text = "My Playlists",
+                fontFamily = SyneFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                color = Color.White,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = { showCreateDialog = true }) {
+                Icon(Icons.Outlined.Add, contentDescription = "New playlist", tint = Color(0xFFC084FC))
+            }
+        }
+
+        if (playlists.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 80.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    Icons.Outlined.LibraryMusic,
+                    contentDescription = null,
+                    tint = Color(0x20FFFFFF),
+                    modifier = Modifier.size(64.dp)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("No playlists yet", fontFamily = SyneFontFamily, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0x47FFFFFF))
+                Text("Tap + to create your first playlist", fontFamily = DmSansFontFamily, fontSize = 13.sp, color = Color(0x28FFFFFF))
+            }
+        } else {
+            LazyColumn(contentPadding = PaddingValues(16.dp)) {
+                itemsIndexed(playlists) { _, playlist ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
+                            .clickable {
+                                val encodedName = java.net.URLEncoder.encode(playlist.name, "UTF-8")
+                                navController.navigate("playlistdetail/${playlist.id}/$encodedName")
+                            },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF13131F))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(50.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(brush = Brush.linearGradient(listOf(Color(0xFF9333EA), Color(0xFFDB2777)))),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.QueueMusic, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(playlist.name, fontFamily = SyneFontFamily, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                                Text("${playlist.songCount} songs", fontFamily = DmSansFontFamily, fontSize = 12.sp, color = Color(0x47FFFFFF))
+                            }
+                            IconButton(onClick = {
+                                val encodedName = java.net.URLEncoder.encode(playlist.name, "UTF-8")
+                                navController.navigate("playlistdetail/${playlist.id}/$encodedName")
+                            }) {
+                                Icon(Icons.Outlined.PlayArrow, contentDescription = "Open", tint = Color(0xFFA855F7))
+                            }
+                            IconButton(onClick = { deleteTarget = playlist }) {
+                                Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFF87171))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            containerColor = Color(0xFF13131F),
+            title = { Text("Delete Playlist", fontFamily = SyneFontFamily, fontWeight = FontWeight.Bold, color = Color.White) },
+            text = { Text("This cannot be undone.", color = Color(0x99FFFFFF)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    playlistViewModel.deletePlaylist(target.id)
+                    deleteTarget = null
+                }) {
+                    Text("Delete", color = Color(0xFFF87171))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) {
+                    Text("Cancel", color = Color(0x47FFFFFF))
+                }
+            }
+        )
+    }
+
+    if (showCreateDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateDialog = false },
+            containerColor = Color(0xFF13131F),
+            title = { Text("New Playlist", fontFamily = SyneFontFamily, fontWeight = FontWeight.Bold, color = Color.White) },
+            text = {
+                OutlinedTextField(
+                    value = newPlaylistName,
+                    onValueChange = { newPlaylistName = it },
+                    placeholder = { Text("Playlist name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (newPlaylistName.isNotBlank()) {
+                        playlistViewModel.createPlaylist(newPlaylistName)
+                        newPlaylistName = ""
+                        showCreateDialog = false
+                    }
+                }) {
+                    Text("Create", color = Color(0xFFC084FC))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateDialog = false }) {
+                    Text("Cancel", color = Color(0x47FFFFFF))
+                }
+            }
+        )
+    }
+}
+
+// --- PLAYLIST DETAIL SCREEN ---
+
+@Composable
+fun PlaylistDetailScreen(
+    navController: NavController,
+    playlistId: String,
+    playlistName: String,
+    playlistViewModel: PlaylistViewModel,
+    favouritesViewModel: FavouritesViewModel
+) {
+    val context = LocalContext.current
+    val songs by playlistViewModel.currentPlaylistSongs.collectAsState()
+    val isLoading by playlistViewModel.isLoading.collectAsState()
+    val decodedName = remember(playlistName) { java.net.URLDecoder.decode(playlistName, "UTF-8") }
+
+    LaunchedEffect(playlistId) {
+        playlistViewModel.loadPlaylistSongs(playlistId)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 52.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { navController.popBackStack() }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color(0x99FFFFFF)
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(decodedName, fontFamily = SyneFontFamily, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color.White)
+                Text("${songs.size} songs", fontFamily = DmSansFontFamily, fontSize = 12.sp, color = Color(0x47FFFFFF))
+            }
+        }
+
+        when {
+            isLoading -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color(0xFFA855F7))
+                }
+            }
+            songs.isEmpty() -> {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text("No songs yet", fontFamily = SyneFontFamily, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0x47FFFFFF))
+                    Text(
+                        "Add songs using the playlist icon on any song",
+                        fontFamily = DmSansFontFamily,
+                        fontSize = 13.sp,
+                        color = Color(0x28FFFFFF),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 40.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            else -> {
+                LazyColumn(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    itemsIndexed(songs) { _, song ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color(0xFFA855F7).copy(alpha = 0.1f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (!song.imageUrl.isNullOrEmpty()) {
+                                    AsyncImage(
+                                        model = song.imageUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Icon(Icons.Default.MusicNote, null, tint = Color(0xFFA855F7), modifier = Modifier.size(20.dp))
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        if (song.imageUrl != null) {
+                                            MediaManager.playYouTube(context, song)
+                                        } else {
+                                            val localSongs = SongRepository.getSongsByMood(song.mood)
+                                            MediaManager.playLocal(context, song, localSongs)
+                                        }
+                                        favouritesViewModel.recordSongPlayed()
+                                    }
+                            ) {
+                                Text(song.title, fontFamily = SyneFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(song.artist, fontFamily = DmSansFontFamily, fontSize = 11.sp, color = Color(0x59FFFFFF), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            IconButton(onClick = {
+                                playlistViewModel.removeSongFromPlaylist(playlistId, song.id)
+                                Toast.makeText(context, "Removed from playlist", Toast.LENGTH_SHORT).show()
+                            }) {
+                                Icon(Icons.Outlined.Delete, contentDescription = "Remove", tint = Color(0xFFF87171))
+                            }
+                        }
+                        HorizontalDivider(color = Color(0x0EFFFFFF))
+                    }
+                }
             }
         }
     }

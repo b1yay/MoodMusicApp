@@ -50,6 +50,7 @@ fun MainScreen() {
     val authState by authViewModel.authState.collectAsState()
     val jamendoViewModel: JamendoViewModel = viewModel(factory = JamendoViewModel.Factory())
     val favouritesViewModel: FavouritesViewModel = viewModel(factory = FavouritesViewModel.Companion.Factory())
+    val playlistViewModel: PlaylistViewModel = viewModel(factory = PlaylistViewModel.Companion.Factory())
 
     val showBottomBar = currentRoute != Screen.Login.route && 
                        currentRoute != Screen.SignUp.route && 
@@ -138,13 +139,15 @@ fun MainScreen() {
                     onBack = { navController.popBackStack() },
                     onNavigateToNowPlaying = { navController.navigate(Screen.NowPlaying.route) },
                     jamendoViewModel = jamendoViewModel,
-                    favouritesViewModel = favouritesViewModel
+                    favouritesViewModel = favouritesViewModel,
+                    playlistViewModel = playlistViewModel
                 )
             }
 
             composable(route = Screen.Favourites.route) {
                 FavouritesScreen(
                     favouritesViewModel = favouritesViewModel,
+                    playlistViewModel = playlistViewModel,
                     onNavigateToNowPlaying = {
                         navController.navigate(Screen.NowPlaying.route)
                     }
@@ -158,6 +161,7 @@ fun MainScreen() {
             ) {
                 NowPlayingScreen(
                     favouritesViewModel = favouritesViewModel,
+                    playlistViewModel = playlistViewModel,
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -173,7 +177,8 @@ fun MainScreen() {
                 ProfileScreen(
                     navController = navController,
                     authViewModel = authViewModel,
-                    favouritesViewModel = favouritesViewModel
+                    favouritesViewModel = favouritesViewModel,
+                    playlistViewModel = playlistViewModel
                 )
             }
             composable(route = "editprofile") {
@@ -191,6 +196,28 @@ fun MainScreen() {
             }
             composable(route = "about") {
                 AboutScreen(navController = navController)
+            }
+            composable(route = "myplaylists") {
+                MyPlaylistsScreen(
+                    navController = navController,
+                    playlistViewModel = playlistViewModel,
+                    favouritesViewModel = favouritesViewModel
+                )
+            }
+            composable(
+                route = "playlistdetail/{playlistId}/{playlistName}",
+                arguments = listOf(
+                    navArgument("playlistId") { type = NavType.StringType },
+                    navArgument("playlistName") { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                PlaylistDetailScreen(
+                    navController = navController,
+                    playlistId = backStackEntry.arguments?.getString("playlistId") ?: "",
+                    playlistName = backStackEntry.arguments?.getString("playlistName") ?: "",
+                    playlistViewModel = playlistViewModel,
+                    favouritesViewModel = favouritesViewModel
+                )
             }
         }
     }

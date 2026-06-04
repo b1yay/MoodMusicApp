@@ -80,6 +80,9 @@ class AuthViewModel : ViewModel() {
     }
 
     fun signOut() {
+        MediaManager.stop()
+        YouTubePlayer.stop()
+        MusicPlayer.stop()
         viewModelScope.launch {
             _authState.value = AuthState.LoggingOut
             delay(1500)

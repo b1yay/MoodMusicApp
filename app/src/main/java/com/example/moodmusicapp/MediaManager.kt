@@ -125,7 +125,6 @@ object MediaManager {
         currentSong = null
         _currentPlayerType.value = PlayerType.NONE
         _isPlaying.value = false
-        _isBuffering.value = false
         _currentSongState.value = null
     }
 

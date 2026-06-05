@@ -12,6 +12,7 @@ interface JamendoApiService {
         @Query("namesearch") nameSearch: String = "",
         @Query("format") format: String = "json",
         @Query("limit") limit: Int = 10,
+        @Query("offset") offset: Int = 0,
         @Query("include") include: String = "musicinfo",
         @Query("audioformat") audioFormat: String = "mp32",
         @Query("order") order: String = "popularity_total"

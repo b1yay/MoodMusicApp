@@ -5,6 +5,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -22,6 +23,7 @@ class SongListFragment : Fragment() {
     private lateinit var youTubeViewModel: YouTubeViewModel
     private lateinit var adapter: SongAdapter
     private lateinit var progressBar: ProgressBar
+    private lateinit var btnLoadMore: Button
 
     companion object {
         fun newInstance(mood: String): SongListFragment {
@@ -50,6 +52,7 @@ class SongListFragment : Fragment() {
         val tvMoodTitle = view.findViewById<TextView>(R.id.tvMoodTitle)
         val rvSongs = view.findViewById<RecyclerView>(R.id.rvSongs)
         progressBar = view.findViewById(R.id.progressBar)
+        btnLoadMore = view.findViewById(R.id.btnLoadMore)
 
         tvMoodTitle.text = "${mood} Songs"
 
@@ -70,6 +73,10 @@ class SongListFragment : Fragment() {
         rvSongs.layoutManager = LinearLayoutManager(requireContext())
         rvSongs.adapter = adapter
 
+        btnLoadMore.setOnClickListener {
+            mood?.let { youTubeViewModel.loadMore(it) }
+        }
+
         setupObservers()
 
         // Load YouTube songs
@@ -82,6 +89,7 @@ class SongListFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             youTubeViewModel.isLoading.collectLatest { isLoading ->
                 progressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+                btnLoadMore.isEnabled = !isLoading
             }
         }
 
@@ -108,9 +116,11 @@ class SongListFragment : Fragment() {
                         )
                     }
                     adapter.updateData(mappedSongs)
+                    btnLoadMore.visibility = View.VISIBLE
                 } else if (!youTubeViewModel.isLoading.value) {
                     // Fallback to local songs if YouTube results are empty and not loading
                     adapter.updateData(SongRepository.getSongsByMood(mood ?: ""))
+                    btnLoadMore.visibility = View.GONE
                 }
             }
         }

@@ -24,6 +24,14 @@ class PlaylistViewModel : ViewModel() {
         PlaylistRepository.observePlaylists { _playlists.value = it }
     }
 
+    fun reloadForCurrentUser() {
+        viewModelScope.launch {
+            _playlists.value = emptyList()
+            _currentPlaylistSongs.value = emptyList()
+            observePlaylists()
+        }
+    }
+
     fun createPlaylist(name: String) {
         viewModelScope.launch {
             try { PlaylistRepository.createPlaylist(name) }

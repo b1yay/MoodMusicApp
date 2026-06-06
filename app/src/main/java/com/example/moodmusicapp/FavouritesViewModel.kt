@@ -50,6 +50,17 @@ class FavouritesViewModel : ViewModel() {
         }
     }
 
+    fun reloadForCurrentUser() {
+        viewModelScope.launch {
+            _favourites.value = emptyList()
+            _count.value = 0
+            _songsPlayed.value = 0
+            _moodsUsed.value = 0
+            loadFavourites()
+            observeStats()
+        }
+    }
+
     fun loadFavourites() {
         viewModelScope.launch {
             _isLoading.value = true

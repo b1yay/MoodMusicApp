@@ -2,8 +2,11 @@ package com.example.moodmusicapp
 
 import android.os.Bundle
 import android.Manifest
+import android.content.Context
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,6 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -34,8 +39,27 @@ import com.example.moodmusicapp.ui.*
 import com.example.moodmusicapp.ui.theme.*
 
 class MainActivity : ComponentActivity() {
+
+    private val playbackReceiver = PlaybackReceiver()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MediaManager.init(this)
+        PlayerNotificationHelper.createNotificationChannel(this)
+
+        // Register the playback-control receiver once (not on recomposition).
+        val filter = IntentFilter().apply {
+            addAction("com.example.moodmusicapp.PLAY_PAUSE")
+            addAction("com.example.moodmusicapp.NEXT")
+            addAction("com.example.moodmusicapp.PREVIOUS")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(playbackReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(playbackReceiver, filter)
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
@@ -47,6 +71,15 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(playbackReceiver)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Receiver not registered: ${e.message}")
+        }
+    }
 }
 
 @Composable
@@ -55,11 +88,18 @@ fun MainScreen() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val authViewModel: AuthViewModel = viewModel()
-    val authState by authViewModel.authState.collectAsState()
     val jamendoViewModel: JamendoViewModel = viewModel(factory = JamendoViewModel.Factory())
     val favouritesViewModel: FavouritesViewModel = viewModel(factory = FavouritesViewModel.Companion.Factory())
     val playlistViewModel: PlaylistViewModel = viewModel(factory = PlaylistViewModel.Companion.Factory())
+    val authViewModel: AuthViewModel = viewModel(
+        factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return AuthViewModel(favouritesViewModel, playlistViewModel) as T
+            }
+        }
+    )
+    val authState by authViewModel.authState.collectAsState()
 
     val showBottomBar = currentRoute != Screen.Login.route && 
                        currentRoute != Screen.SignUp.route && 
@@ -157,6 +197,7 @@ fun MainScreen() {
                 FavouritesScreen(
                     favouritesViewModel = favouritesViewModel,
                     playlistViewModel = playlistViewModel,
+                    authViewModel = authViewModel,
                     onNavigateToNowPlaying = {
                         navController.navigate(Screen.NowPlaying.route)
                     }
@@ -210,7 +251,8 @@ fun MainScreen() {
                 MyPlaylistsScreen(
                     navController = navController,
                     playlistViewModel = playlistViewModel,
-                    favouritesViewModel = favouritesViewModel
+                    favouritesViewModel = favouritesViewModel,
+                    authViewModel = authViewModel
                 )
             }
             composable(

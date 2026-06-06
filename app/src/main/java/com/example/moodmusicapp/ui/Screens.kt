@@ -3,6 +3,7 @@ package com.example.moodmusicapp.ui
 import android.Manifest
 import android.app.TimePickerDialog
 import android.content.Context
+import android.net.Uri
 import android.graphics.BlurMaskFilter
 import android.os.Build
 import android.util.Log
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.work.ExistingWorkPolicy
@@ -1383,7 +1385,9 @@ fun ProfileScreen(
     val favCount by favouritesViewModel.count.collectAsState()
     val moodsUsed by favouritesViewModel.moodsUsed.collectAsState()
     val playlists by playlistViewModel.playlists.collectAsState()
-    
+    val profilePictureUrl by authViewModel.profilePictureUrl.collectAsState()
+    val coverPhotoUrl by authViewModel.coverPhotoUrl.collectAsState()
+
     val initials = remember(userName) {
         userName.split(" ")
             .filter { it.isNotBlank() }
@@ -1403,12 +1407,29 @@ fun ProfileScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(130.dp)
-                .background(
-                    brush = Brush.linearGradient(
-                        listOf(BrandPurple.copy(alpha = 0.2f), BrandPink.copy(alpha = 0.2f))
-                    )
+        ) {
+            if (coverPhotoUrl != null) {
+                AsyncImage(
+                    model = coverPhotoUrl,
+                    contentDescription = "Cover photo",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-        )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(0xFF9333EA).copy(alpha = 0.25f),
+                                    Color(0xFFDB2777).copy(alpha = 0.15f)
+                                )
+                            )
+                        )
+                )
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -1421,23 +1442,38 @@ fun ProfileScreen(
                 verticalAlignment = Alignment.Bottom
             ) {
                 // Avatar
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(
-                            brush = Brush.linearGradient(listOf(BrandPurple, BrandPink))
-                        )
-                        .border(3.dp, AppBackground, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = initials,
-                        fontFamily = SyneFontFamily,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 24.sp,
-                        color = Color.White
+                if (profilePictureUrl != null) {
+                    AsyncImage(
+                        model = profilePictureUrl,
+                        contentDescription = "Profile picture",
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .border(3.dp, Color(0xFF0C0C18), CircleShape),
+                        contentScale = ContentScale.Crop
                     )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .border(3.dp, Color(0xFF0C0C18), CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF9333EA), Color(0xFFDB2777))
+                                ),
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = initials.ifBlank { "?" },
+                            fontFamily = SyneFontFamily,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 22.sp,
+                            color = Color.White
+                        )
+                    }
                 }
 
                 OutlinedButton(
@@ -1684,6 +1720,7 @@ fun SettingsRow(
 fun FavouritesScreen(
     favouritesViewModel: FavouritesViewModel,
     playlistViewModel: PlaylistViewModel,
+    authViewModel: AuthViewModel,
     onNavigateToNowPlaying: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1691,6 +1728,13 @@ fun FavouritesScreen(
     val isLoading by favouritesViewModel.isLoading.collectAsState()
     val playlists by playlistViewModel.playlists.collectAsState()
     var playlistSheetSong by remember { mutableStateOf<Song?>(null) }
+
+    val authState by authViewModel.authState.collectAsState()
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Authenticated) {
+            favouritesViewModel.reloadForCurrentUser()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -1813,6 +1857,26 @@ fun PlaylistScreen(
     LaunchedEffect(error) {
         error?.let {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Keep MediaManager's playlist in sync so Next/Previous work.
+    // These Song objects carry audioUrl so playback can advance automatically.
+    LaunchedEffect(tracks, isLoading) {
+        if (tracks.isNotEmpty()) {
+            val playlistSongs = tracks.map { track ->
+                Song(
+                    id = track.id,
+                    title = track.name,
+                    artist = track.artist_name,
+                    imageUrl = track.album_image,
+                    mood = moodName,
+                    audioUrl = track.audio
+                )
+            }
+            MediaManager.setCurrentPlaylist(playlistSongs)
+        } else if (!isLoading) {
+            MediaManager.setCurrentPlaylist(SongRepository.getSongsByMood(moodName))
         }
     }
 
@@ -2103,8 +2167,8 @@ fun NowPlayingScreen(
     val playerType by MediaManager.currentPlayerType.collectAsState()
     
     var isFavorite by remember { mutableStateOf(currentSong?.isFavorite ?: false) }
-    var isShuffle by remember { mutableStateOf(MediaManager.isShuffle) }
-    var isLoop by remember { mutableStateOf(MediaManager.isLoop) }
+    val isShuffle by MediaManager.isShuffle.collectAsState()
+    val isLoop by MediaManager.isLoop.collectAsState()
     
     var progress by remember { mutableStateOf(0f) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -2365,21 +2429,24 @@ fun NowPlayingScreen(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            @Suppress("UNUSED_VARIABLE")
-            val dummy = 0 // Spacer workaround if needed
             IconButton(onClick = {
-                MediaManager.isShuffle = !MediaManager.isShuffle
-                isShuffle = MediaManager.isShuffle
+                MediaManager.toggleShuffle()
+                Log.d("UI", "Shuffle tapped, now: ${MediaManager.isShuffle.value}")
             }) {
                 Icon(
-                    imageVector = Icons.Default.Shuffle, 
-                    contentDescription = null, 
-                    tint = if (isShuffle) AccentPurple else Color.White.copy(alpha = 0.5f), 
-                    modifier = Modifier.size(20.dp)
+                    imageVector = Icons.Outlined.Shuffle,
+                    contentDescription = "Shuffle",
+                    tint = if (isShuffle) Color(0xFFA855F7) else Color(0xFFFFFFFF).copy(alpha = 0.5f),
+                    modifier = Modifier.size(24.dp)
                 )
             }
             IconButton(onClick = { MediaManager.playPrevious(context) }) {
-                Icon(Icons.Default.SkipPrevious, null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
+                Icon(
+                    imageVector = Icons.Outlined.SkipPrevious,
+                    contentDescription = "Previous",
+                    tint = Color(0xFFFFFFFF).copy(alpha = 0.7f),
+                    modifier = Modifier.size(32.dp)
+                )
             }
             Box(
                 modifier = Modifier
@@ -2399,17 +2466,22 @@ fun NowPlayingScreen(
                 )
             }
             IconButton(onClick = { MediaManager.playNext(context) }) {
-                Icon(Icons.Default.SkipNext, null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
+                Icon(
+                    imageVector = Icons.Outlined.SkipNext,
+                    contentDescription = "Next",
+                    tint = Color(0xFFFFFFFF).copy(alpha = 0.7f),
+                    modifier = Modifier.size(32.dp)
+                )
             }
-            IconButton(onClick = { 
-                MediaManager.isLoop = !MediaManager.isLoop
-                isLoop = MediaManager.isLoop
+            IconButton(onClick = {
+                MediaManager.toggleLoop()
+                Log.d("UI", "Loop tapped, now: ${MediaManager.isLoop.value}")
             }) {
                 Icon(
-                    imageVector = Icons.Default.Repeat, 
-                    contentDescription = null, 
-                    tint = if (isLoop) AccentPurple else Color.White.copy(alpha = 0.5f), 
-                    modifier = Modifier.size(20.dp)
+                    imageVector = Icons.Outlined.Repeat,
+                    contentDescription = "Repeat",
+                    tint = if (isLoop) Color(0xFFA855F7) else Color(0xFFFFFFFF).copy(alpha = 0.5f),
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
@@ -2706,196 +2778,338 @@ fun PlaceholderScreen(name: String) {
 // --- EDIT PROFILE SCREEN ---
 
 @Composable
-fun EditProfileScreen(navController: NavController, authViewModel: AuthViewModel) {
-    val context = LocalContext.current
-    val userName by authViewModel.currentUserName.collectAsState()
+fun EditProfileScreen(
+    navController: NavController,
+    authViewModel: AuthViewModel
+) {
     val authState by authViewModel.authState.collectAsState()
-    val userEmail = FirebaseAuth.getInstance().currentUser?.email ?: ""
+    val userName by authViewModel.currentUserName.collectAsState()
+    val profilePictureUrl by authViewModel.profilePictureUrl.collectAsState()
+    val coverPhotoUrl by authViewModel.coverPhotoUrl.collectAsState()
+    val isUploading by authViewModel.isUploading.collectAsState()
+    val context = LocalContext.current
 
-    var nameField by remember { mutableStateOf(authViewModel.currentUserName.value) }
-    var saving by remember { mutableStateOf(false) }
+    var nameField by remember { mutableStateOf(userName) }
+    var showSaveSuccess by remember { mutableStateOf(false) }
 
-    val initials = remember(nameField) {
-        nameField.split(" ")
-            .filter { it.isNotBlank() }
-            .take(2)
-            .map { it.first().uppercase() }
-            .joinToString("")
-            .ifEmpty { "U" }
+    val profilePicLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            authViewModel.uploadProfilePicture(context, it)
+        }
+    }
+
+    val coverPhotoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            authViewModel.uploadCoverPhoto(context, it)
+        }
     }
 
     LaunchedEffect(authState) {
-        if (!saving) return@LaunchedEffect
         when (authState) {
             is AuthState.Authenticated -> {
-                saving = false
-                Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
-                navController.popBackStack()
+                if (showSaveSuccess) {
+                    Toast.makeText(context, "Profile updated!", Toast.LENGTH_SHORT).show()
+                    navController.popBackStack()
+                }
             }
             is AuthState.Error -> {
-                saving = false
-                Toast.makeText(context, (authState as AuthState.Error).message, Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    (authState as AuthState.Error).message,
+                    Toast.LENGTH_LONG
+                ).show()
             }
             else -> {}
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppBackground)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp)
-            .padding(top = 52.dp, bottom = 24.dp)
+            .background(Color(0xFF0C0C18))
     ) {
-        // Top bar
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { navController.popBackStack() }) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.White.copy(alpha = 0.7f)
-                )
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Edit Profile",
-                fontFamily = SyneFontFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                color = Color.White
-            )
-        }
-
-        Spacer(modifier = Modifier.height(28.dp))
-
-        // Avatar
-        Box(
+        Column(
             modifier = Modifier
-                .size(96.dp)
-                .align(Alignment.CenterHorizontally)
-                .clip(CircleShape)
-                .background(brush = Brush.linearGradient(listOf(BrandPurple, BrandPink))),
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
         ) {
-            Text(
-                text = initials,
-                fontFamily = SyneFontFamily,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 30.sp,
-                color = Color.White
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(
-            text = "Change avatar color",
-            color = Color(0xFFC084FC),
-            fontSize = 12.sp,
-            fontFamily = DmSansFontFamily,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .clip(RoundedCornerShape(8.dp))
-                .clickable { Toast.makeText(context, "Coming soon!", Toast.LENGTH_SHORT).show() }
-                .padding(8.dp)
-        )
-
-        Spacer(modifier = Modifier.height(28.dp))
-
-        Text(
-            text = "DISPLAY NAME",
-            fontFamily = SyneFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 11.sp,
-            color = Color.White.copy(alpha = 0.35f),
-            letterSpacing = 1.2.sp
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        ArbitifyTextField(
-            value = nameField,
-            onValueChange = { nameField = it },
-            placeholder = "Your name"
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = "EMAIL",
-            fontFamily = SyneFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 11.sp,
-            color = Color.White.copy(alpha = 0.35f),
-            letterSpacing = 1.2.sp
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color.White.copy(alpha = 0.04f))
-                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Default.Lock,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.3f),
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = userEmail,
-                color = Color.White.copy(alpha = 0.45f),
-                fontSize = 14.sp,
-                fontFamily = DmSansFontFamily
-            )
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = "Contact support to change email",
-            color = Color.White.copy(alpha = 0.3f),
-            fontSize = 11.sp,
-            fontFamily = DmSansFontFamily
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Button(
-            onClick = {
-                saving = true
-                authViewModel.updateDisplayName(nameField)
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            enabled = authState !is AuthState.Loading,
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-            contentPadding = PaddingValues()
-        ) {
+            // Cover photo section
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        brush = Brush.linearGradient(listOf(BrandPurple, BrandPink)),
-                        shape = RoundedCornerShape(14.dp)
-                    ),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .clickable { coverPhotoLauncher.launch("image/*") }
             ) {
-                if (authState is AuthState.Loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                if (coverPhotoUrl != null) {
+                    AsyncImage(
+                        model = coverPhotoUrl,
+                        contentDescription = "Cover photo",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 } else {
-                    Text(
-                        text = "Save Changes",
-                        fontFamily = SyneFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = Color.White
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(Color(0xFF9333EA), Color(0xFFDB2777))
+                                )
+                            )
                     )
                 }
+                // Dark overlay
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0x55000000))
+                )
+                // Top bar over cover
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 48.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(
+                            Icons.Outlined.ChevronLeft,
+                            contentDescription = "Back",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Text(
+                        "Edit Profile",
+                        fontFamily = SyneFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = Color.White,
+                        modifier = Modifier.weight(1f),
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.width(48.dp))
+                }
+                // Camera hint bottom center of cover
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Outlined.CameraAlt,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        "Tap to change cover",
+                        fontFamily = DmSansFontFamily,
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+                }
+            }
+
+            // Profile picture overlapping cover
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(y = (-44).dp)
+                    .padding(horizontal = 20.dp)
+            ) {
+                Box(
+                    modifier = Modifier.size(88.dp),
+                    contentAlignment = Alignment.BottomEnd
+                ) {
+                    if (profilePictureUrl != null) {
+                        AsyncImage(
+                            model = profilePictureUrl,
+                            contentDescription = "Profile picture",
+                            modifier = Modifier
+                                .size(88.dp)
+                                .clip(CircleShape)
+                                .border(3.dp, Color(0xFF0C0C18), CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(88.dp)
+                                .clip(CircleShape)
+                                .border(3.dp, Color(0xFF0C0C18), CircleShape)
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(Color(0xFF9333EA), Color(0xFFDB2777))
+                                    ),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val initials = userName
+                                .split(" ")
+                                .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                                .take(2)
+                                .joinToString("")
+                            Text(
+                                initials.ifBlank { "?" },
+                                fontFamily = SyneFontFamily,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 28.sp,
+                                color = Color.White
+                            )
+                        }
+                    }
+                    // Camera badge
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .background(Color(0xFF9333EA), CircleShape)
+                            .border(2.dp, Color(0xFF0C0C18), CircleShape)
+                            .clickable { profilePicLauncher.launch("image/*") },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Outlined.CameraAlt,
+                            contentDescription = "Change photo",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+
+            // Form fields
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .offset(y = (-36).dp)
+            ) {
+                Text(
+                    "DISPLAY NAME",
+                    fontFamily = SyneFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    color = Color.White.copy(alpha = 0.35f),
+                    letterSpacing = 0.12.em,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                OutlinedTextField(
+                    value = nameField,
+                    onValueChange = { nameField = it },
+                    placeholder = {
+                        Text("Your name", color = Color.White.copy(alpha = 0.35f))
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFFA855F7),
+                        unfocusedBorderColor = Color(0x1AFFFFFF),
+                        focusedContainerColor = Color(0x0EFFFFFF),
+                        unfocusedContainerColor = Color(0x0EFFFFFF),
+                        cursorColor = Color(0xFFA855F7),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+
+                Spacer(Modifier.height(20.dp))
+
+                Text(
+                    "EMAIL",
+                    fontFamily = SyneFontFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    color = Color.White.copy(alpha = 0.35f),
+                    letterSpacing = 0.12.em,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0x08FFFFFF), RoundedCornerShape(14.dp))
+                        .border(1.dp, Color(0x1AFFFFFF), RoundedCornerShape(14.dp))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Outlined.Lock,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.35f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email ?: "",
+                        fontFamily = DmSansFontFamily,
+                        fontSize = 14.sp,
+                        color = Color.White.copy(alpha = 0.5f)
+                    )
+                }
+                Text(
+                    "Contact support to change your email",
+                    fontFamily = DmSansFontFamily,
+                    fontSize = 11.sp,
+                    color = Color.White.copy(alpha = 0.25f),
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                )
+
+                Spacer(Modifier.height(28.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF9333EA), Color(0xFFDB2777))
+                            )
+                        )
+                        .clickable(enabled = !isUploading) {
+                            showSaveSuccess = true
+                            authViewModel.updateDisplayName(nameField)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isUploading) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "Uploading...",
+                                fontFamily = SyneFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Color.White
+                            )
+                        }
+                    } else {
+                        Text(
+                            "Save Changes",
+                            fontFamily = SyneFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color.White
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(32.dp))
             }
         }
     }
@@ -3928,12 +4142,20 @@ fun AddToPlaylistSheet(
 fun MyPlaylistsScreen(
     navController: NavController,
     playlistViewModel: PlaylistViewModel,
-    favouritesViewModel: FavouritesViewModel
+    favouritesViewModel: FavouritesViewModel,
+    authViewModel: AuthViewModel
 ) {
     val playlists by playlistViewModel.playlists.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
     var deleteTarget by remember { mutableStateOf<UserPlaylist?>(null) }
+
+    val authState by authViewModel.authState.collectAsState()
+    LaunchedEffect(authState) {
+        if (authState is AuthState.Authenticated) {
+            playlistViewModel.reloadForCurrentUser()
+        }
+    }
 
     Column(
         modifier = Modifier

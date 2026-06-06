@@ -1,15 +1,20 @@
 package com.example.moodmusicapp
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.UserProfileChangeRequest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class AuthViewModel : ViewModel() {
+class AuthViewModel(
+    private val favouritesViewModel: FavouritesViewModel? = null,
+    private val playlistViewModel: PlaylistViewModel? = null
+) : ViewModel() {
 
     private val auth = FirebaseAuth.getInstance()
 
@@ -18,6 +23,66 @@ class AuthViewModel : ViewModel() {
 
     private val _currentUserName = MutableStateFlow<String>("User")
     val currentUserName = _currentUserName.asStateFlow()
+
+    private val _profilePictureUrl = MutableStateFlow<String?>(null)
+    val profilePictureUrl = _profilePictureUrl.asStateFlow()
+
+    private val _coverPhotoUrl = MutableStateFlow<String?>(null)
+    val coverPhotoUrl = _coverPhotoUrl.asStateFlow()
+
+    private val _isUploading = MutableStateFlow(false)
+    val isUploading = _isUploading.asStateFlow()
+
+    fun loadUserPhotos() {
+        viewModelScope.launch {
+            try {
+                val (profileUrl, coverUrl) = CloudinaryRepository.getUserPhotoUrls()
+                _profilePictureUrl.value = profileUrl
+                _coverPhotoUrl.value = coverUrl
+                Log.d("AuthViewModel", "Photos loaded - profile: $profileUrl")
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "loadUserPhotos error: ${e.message}")
+            }
+        }
+    }
+
+    fun uploadProfilePicture(context: android.content.Context, uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isUploading.value = true
+            try {
+                val url = CloudinaryRepository.uploadProfilePicture(context, uri)
+                if (url != null) {
+                    _profilePictureUrl.value = url
+                    Log.d("AuthViewModel", "Profile picture uploaded: $url")
+                } else {
+                    Log.e("AuthViewModel", "Profile picture upload returned null")
+                }
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "uploadProfilePicture error: ${e.message}")
+            } finally {
+                _isUploading.value = false
+            }
+        }
+    }
+
+    fun uploadCoverPhoto(context: android.content.Context, uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isUploading.value = true
+            try {
+                val url = CloudinaryRepository.uploadCoverPhoto(context, uri)
+                if (url != null) {
+                    _coverPhotoUrl.value = url
+                    Log.d("AuthViewModel", "Cover photo uploaded: $url")
+                } else {
+                    Log.e("AuthViewModel", "Cover photo upload returned null")
+                }
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "uploadCoverPhoto error: ${e.message}")
+            } finally {
+                _isUploading.value = false
+            }
+        }
+    }
 
     init {
         checkCurrentUser()
@@ -28,6 +93,7 @@ class AuthViewModel : ViewModel() {
         if (user != null) {
             _currentUserName.value = user.displayName ?: user.email?.substringBefore("@") ?: "User"
             _authState.value = AuthState.Authenticated
+            loadUserPhotos()
         } else {
             _authState.value = AuthState.Unauthenticated
         }
@@ -47,6 +113,8 @@ class AuthViewModel : ViewModel() {
                             if (profileTask.isSuccessful) {
                                 _currentUserName.value = name
                                 _authState.value = AuthState.Authenticated
+                                favouritesViewModel?.reloadForCurrentUser()
+                                playlistViewModel?.reloadForCurrentUser()
                             } else {
                                 _authState.value = AuthState.Error(
                                     profileTask.exception?.message ?: "Profile update failed"
@@ -67,10 +135,13 @@ class AuthViewModel : ViewModel() {
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
                     val user = auth.currentUser
-                    _currentUserName.value = user?.displayName 
-                        ?: user?.email?.substringBefore("@") 
+                    _currentUserName.value = user?.displayName
+                        ?: user?.email?.substringBefore("@")
                         ?: "User"
                     _authState.value = AuthState.Authenticated
+                    favouritesViewModel?.reloadForCurrentUser()
+                    playlistViewModel?.reloadForCurrentUser()
+                    loadUserPhotos()
                 } else {
                     _authState.value = AuthState.Error(
                         task.exception?.message ?: "Sign in failed"

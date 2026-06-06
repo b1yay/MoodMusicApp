@@ -136,6 +136,10 @@ object YouTubePlayer {
         player?.repeatMode = if (isLoop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
     }
 
+    fun setLooping(loop: Boolean) {
+        player?.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+    }
+
     fun setOnCompletionListener(listener: () -> Unit) {
         this.onCompletionListener = listener
     }

@@ -85,12 +85,27 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:layout_marginTop="12dp"
-        android:paddingBottom="100dp"
+        android:paddingBottom="16dp"
         android:clipToPadding="false"
         app:layout_constraintTop_toBottomOf="@id/headerSongList"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/btnLoadMore"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnLoadMore"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Load More"
+        android:textColor="@color/white"
+        app:backgroundTint="@color/neon_purple"
+        android:layout_marginBottom="100dp"
+        android:paddingHorizontal="32dp"
+        app:cornerRadius="24dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
 
     <ProgressBar
         android:id="@+id/progressBar"

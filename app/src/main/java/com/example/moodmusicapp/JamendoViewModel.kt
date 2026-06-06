@@ -19,20 +19,43 @@ class JamendoViewModel : ViewModel() {
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
-    fun loadTracksForMood(mood: String) {
+    private var currentOffset = 0
+    private var currentMood = ""
+
+    fun loadTracksForMood(mood: String, isLoadMore: Boolean = false) {
+        if (!isLoadMore) {
+            currentOffset = 0
+            currentMood = mood
+        }
+
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
             try {
-                val results = JamendoRepository().getTracksByMood(mood)
-                Log.d("JAMENDO", "Loaded ${results.size} tracks for mood: $mood")
-                _tracks.value = results
+                val results = JamendoRepository().getTracksByMood(mood, currentOffset)
+                Log.d("JAMENDO", "Loaded ${results.size} tracks for mood: $mood, offset: $currentOffset")
+                
+                if (isLoadMore) {
+                    _tracks.value = _tracks.value + results
+                } else {
+                    _tracks.value = results
+                }
+                
+                if (results.isNotEmpty()) {
+                    currentOffset += results.size
+                }
             } catch (e: Exception) {
                 Log.e("JAMENDO", "Error: ${e.message}", e)
                 _error.value = e.message
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    fun loadMore() {
+        if (currentMood.isNotEmpty() && !isLoading.value) {
+            loadTracksForMood(currentMood, isLoadMore = true)
         }
     }
 

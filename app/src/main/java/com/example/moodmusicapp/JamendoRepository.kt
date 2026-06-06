@@ -6,7 +6,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 class JamendoRepository {
 
-    suspend fun getTracksByMood(mood: String): List<JamendoTrack> {
+    suspend fun getTracksByMood(mood: String, offset: Int = 0): List<JamendoTrack> {
         val tag = when (mood) {
             "Happy" -> "happy"
             "Sad" -> "sad"
@@ -17,7 +17,7 @@ class JamendoRepository {
         }
 
         return try {
-            val response = apiService.searchTracks(clientId = CLIENT_ID, tags = tag)
+            val response = apiService.searchTracks(clientId = CLIENT_ID, tags = tag, offset = offset)
             if (response.isSuccessful) {
                 response.body()?.results ?: emptyList()
             } else {

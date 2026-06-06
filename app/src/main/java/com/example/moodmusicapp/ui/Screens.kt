@@ -832,7 +832,7 @@ fun HomeScreen(
                 )
             }
             Row {
-                IconButton(
+                /*IconButton(
                     onClick = { },
                     modifier = Modifier
                         .clip(CircleShape)
@@ -840,7 +840,7 @@ fun HomeScreen(
                 ) {
                     Icon(Icons.Default.Notifications, null, tint = Color.White)
                 }
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(8.dp))*/
                 IconButton(
                     onClick = onLogout,
                     modifier = Modifier
@@ -890,7 +890,7 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(16.dp))
         
         Text(
-            text = "Made for your mood",
+            text = "Top Hits",
             fontFamily = SyneFontFamily,
             fontWeight = FontWeight.Bold,
             fontSize = 18.sp,
@@ -2183,14 +2183,15 @@ fun NowPlayingScreen(
                 color = Color.White.copy(alpha = 0.35f),
                 letterSpacing = 1.3.sp
             )
-            IconButton(onClick = { }) {
+            /*IconButton(onClick = { }) {
                 Icon(
                     imageVector = Icons.Default.MoreVert,
                     contentDescription = "More",
                     tint = Color.White.copy(alpha = 0.6f),
                     modifier = Modifier.size(22.dp)
                 )
-            }
+            }*/
+            Spacer(modifier = Modifier.size(48.dp))
         }
 
         Spacer(modifier = Modifier.height(28.dp))
@@ -2329,7 +2330,7 @@ fun NowPlayingScreen(
                 }
             )
             ActionItem(Icons.AutoMirrored.Outlined.Article, "Lyrics", onClick = { onLyricsClick() })
-            ActionItem(Icons.Outlined.MoreVert, "More")
+           /* ActionItem(Icons.Outlined.MoreVert, "More")*/
         }
 
         Spacer(modifier = Modifier.height(26.dp))

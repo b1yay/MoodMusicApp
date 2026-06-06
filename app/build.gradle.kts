@@ -53,6 +53,8 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.3.1")
     implementation("androidx.media3:media3-common:1.3.1")
     implementation("androidx.media3:media3-datasource-okhttp:1.3.1")
+    implementation("androidx.media3:media3-session:1.3.1")
+
 
     // OkHttp logging (for debugging API calls)
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
@@ -94,7 +96,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
-    andro idTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
